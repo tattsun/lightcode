@@ -1,5 +1,6 @@
 """シンプルなREPLループ（LiteLLM対応・Tool Calling）"""
 
+import argparse
 import json
 import os
 
@@ -60,10 +61,15 @@ def request_permission(name: str, arguments: dict, index: int, total: int) -> bo
         print("y または n で回答してください")
 
 
-def execute_tool(name: str, arguments: dict, index: int, total: int) -> str:
+def execute_tool(
+    name: str, arguments: dict, index: int, total: int, *, skip_permission: bool = False
+) -> str:
     """ツールを実行（許可を求める）"""
-    if not request_permission(name, arguments, index, total):
-        return "Error: Tool execution was denied by user."
+    if not skip_permission:
+        if not request_permission(name, arguments, index, total):
+            return "Error: Tool execution was denied by user."
+    else:
+        print(f"\n[Tool Call ({index}/{total})] {name}({json.dumps(arguments, ensure_ascii=False)})")
 
     try:
         if name == "list_files":
@@ -73,9 +79,11 @@ def execute_tool(name: str, arguments: dict, index: int, total: int) -> str:
         return f"Error: {type(e).__name__}: {e}"
 
 
-def run_repl() -> None:
+def run_repl(*, skip_permission: bool = False) -> None:
     """REPLを起動する"""
     print("lightcode REPL (GPT-5.2 + Tool Calling)")
+    if skip_permission:
+        print("[--no-permissions モード: ツール実行の許可確認をスキップ]")
     print("終了するには 'exit' または 'quit' と入力してください")
     print()
 
@@ -115,7 +123,9 @@ def run_repl() -> None:
                         func_name = tool_call.function.name
                         func_args = json.loads(tool_call.function.arguments)
 
-                        result = execute_tool(func_name, func_args, i, total)
+                        result = execute_tool(
+                            func_name, func_args, i, total, skip_permission=skip_permission
+                        )
 
                         # ツール結果を追加
                         messages.append(
@@ -145,7 +155,15 @@ def run_repl() -> None:
 
 def main() -> None:
     """エントリポイント"""
-    run_repl()
+    parser = argparse.ArgumentParser(description="lightcode REPL")
+    parser.add_argument(
+        "--no-permissions",
+        action="store_true",
+        help="ツール実行時の許可確認をスキップする",
+    )
+    args = parser.parse_args()
+
+    run_repl(skip_permission=args.no_permissions)
 
 
 if __name__ == "__main__":
