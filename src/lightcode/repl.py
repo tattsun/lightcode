@@ -5,6 +5,7 @@ import json
 
 import litellm
 from rich.console import Console
+from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.text import Text
@@ -236,7 +237,7 @@ def run_repl(*, skip_permission: bool = False) -> None:
                     if assistant_message.content:
                         console.print()
                         console.print(Panel(
-                            assistant_message.content,
+                            Markdown(assistant_message.content),
                             title="🤖 Assistant",
                             title_align="left",
                             border_style="blue",
