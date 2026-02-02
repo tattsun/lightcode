@@ -1,4 +1,4 @@
-"""シェルコマンド実行ツール"""
+"""Shell command execution tool."""
 
 import subprocess
 
@@ -6,7 +6,7 @@ from lightcode.tools.base import Tool
 
 
 class RunCommandTool(Tool):
-    """シェルコマンドを実行するツール"""
+    """Tool for executing shell commands."""
 
     @property
     def name(self) -> str:
@@ -14,19 +14,19 @@ class RunCommandTool(Tool):
 
     @property
     def description(self) -> str:
-        return "シェルコマンドを実行する。ビルド、テスト、git操作などに使用。"
+        return "Execute a shell command. Use for builds, tests, git operations, etc."
 
     @property
     def parameters(self) -> dict:
         return {
             "command": {
                 "type": "string",
-                "description": "実行するシェルコマンド",
+                "description": "Shell command to execute",
                 "required": True,
             },
             "timeout": {
                 "type": "integer",
-                "description": "タイムアウト秒数（デフォルト: 60）",
+                "description": "Timeout in seconds (default: 60)",
             },
         }
 

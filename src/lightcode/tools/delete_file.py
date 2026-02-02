@@ -1,4 +1,4 @@
-"""ファイル削除ツール"""
+"""File deletion tool."""
 
 import os
 
@@ -6,7 +6,7 @@ from lightcode.tools.base import Tool
 
 
 class DeleteFileTool(Tool):
-    """ファイルを削除するツール"""
+    """Tool for deleting a file."""
 
     @property
     def name(self) -> str:
@@ -14,14 +14,14 @@ class DeleteFileTool(Tool):
 
     @property
     def description(self) -> str:
-        return "指定したファイルを削除する。"
+        return "Delete a file."
 
     @property
     def parameters(self) -> dict:
         return {
             "path": {
                 "type": "string",
-                "description": "削除するファイルのパス",
+                "description": "Path to the file to delete",
                 "required": True,
             },
         }

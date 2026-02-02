@@ -1,10 +1,10 @@
-"""ファイル編集ツール（検索＆置換方式）"""
+"""File editing tool (search and replace)."""
 
 from lightcode.tools.base import Tool
 
 
 class EditFileTool(Tool):
-    """ファイル内の文字列を検索して置換するツール"""
+    """Tool for searching and replacing text in a file."""
 
     @property
     def name(self) -> str:
@@ -12,22 +12,22 @@ class EditFileTool(Tool):
 
     @property
     def description(self) -> str:
-        return "ファイル内の指定した文字列を検索し、新しい文字列で置換する。old_stringは一意である必要がある。"
+        return "Search for a string in a file and replace it. The old_string must be unique."
 
     @property
     def parameters(self) -> dict:
         return {
             "path": {
                 "type": "string",
-                "description": "編集するファイルのパス",
+                "description": "Path to the file to edit",
             },
             "old_string": {
                 "type": "string",
-                "description": "置換対象の文字列（一意にマッチする必要がある）",
+                "description": "String to search for (must match uniquely)",
             },
             "new_string": {
                 "type": "string",
-                "description": "置換後の文字列",
+                "description": "Replacement string",
             },
         }
 
@@ -47,7 +47,7 @@ class EditFileTool(Tool):
             with open(path, encoding="utf-8") as f:
                 content = f.read()
 
-            # マッチ数をカウント
+            # Count matches
             count = content.count(old_string)
 
             if count == 0:
@@ -55,13 +55,13 @@ class EditFileTool(Tool):
             if count > 1:
                 return f"Error: old_string matches {count} times. Please provide more context to make it unique."
 
-            # 置換を実行
+            # Perform replacement
             new_content = content.replace(old_string, new_string, 1)
 
             with open(path, "w", encoding="utf-8") as f:
                 f.write(new_content)
 
-            # 変更の統計
+            # Change statistics
             old_lines = old_string.count("\n") + 1
             new_lines = new_string.count("\n") + 1
             return f"Successfully edited {path}: replaced {old_lines} lines with {new_lines} lines"

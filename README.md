@@ -1,35 +1,35 @@
 # lightcode
 
-Tool Calling対応のシンプルなCoding Agent
+A simple coding agent with tool calling support.
 
-## セットアップ
+## Setup
 
 ```bash
 rye sync
 ```
 
-## 環境変数
+## Environment Variables
 
 ```bash
 export OPENAI_API_KEY=sk-xxxxx
-export TAVILY_API_KEY=tvly-xxxxx  # Web検索を使う場合
+export TAVILY_API_KEY=tvly-xxxxx  # Required for web search
 ```
 
-## 使い方
+## Usage
 
 ```bash
-# ローカル実行
+# Local
 make run
 
-# Docker実行
+# Docker
 make docker-build
 make docker-run
 ```
 
-## オプション
+## Options
 
-| オプション | 説明 |
-|-----------|------|
-| `--no-permissions` | ツール実行時の許可確認をスキップ |
-| `--web-search` | Web検索ツールを有効化 |
-| `--log-file <path>` | セッションログをJSONLファイルに保存 |
+| Option | Description |
+|--------|-------------|
+| `--no-permissions` | Skip permission prompts for tool execution |
+| `--web-search` | Enable web search tools |
+| `--log-file <path>` | Save session log to JSONL file |

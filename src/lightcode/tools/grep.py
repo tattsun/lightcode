@@ -1,4 +1,4 @@
-"""コード内検索ツール"""
+"""Code search tool."""
 
 import os
 import re
@@ -7,7 +7,7 @@ from lightcode.tools.base import Tool
 
 
 class GrepTool(Tool):
-    """ファイル内容を正規表現で検索するツール"""
+    """Tool for searching file contents with regex."""
 
     @property
     def name(self) -> str:
@@ -15,27 +15,27 @@ class GrepTool(Tool):
 
     @property
     def description(self) -> str:
-        return "ディレクトリ内のファイルを正規表現で検索し、マッチした行を返す。"
+        return "Search files with a regex pattern and return matching lines."
 
     @property
     def parameters(self) -> dict:
         return {
             "pattern": {
                 "type": "string",
-                "description": "検索する正規表現パターン",
+                "description": "Regex pattern to search for",
                 "required": True,
             },
             "path": {
                 "type": "string",
-                "description": "検索対象のディレクトリパス（デフォルト: カレントディレクトリ）",
+                "description": "Directory to search in (default: current directory)",
             },
             "include": {
                 "type": "string",
-                "description": "対象ファイルのglobパターン（例: *.py）",
+                "description": "File glob pattern filter (e.g., *.py)",
             },
             "max_results": {
                 "type": "integer",
-                "description": "最大結果数（デフォルト: 50）",
+                "description": "Maximum number of results (default: 50)",
             },
         }
 
@@ -58,12 +58,12 @@ class GrepTool(Tool):
 
         try:
             for root, _, files in os.walk(path):
-                # 隠しディレクトリをスキップ
+                # Skip hidden directories
                 if "/." in root or root.startswith("."):
                     continue
 
                 for filename in files:
-                    # includeパターンがある場合はフィルタ
+                    # Filter by include pattern
                     if include:
                         import fnmatch
                         if not fnmatch.fnmatch(filename, include):

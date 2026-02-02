@@ -1,10 +1,10 @@
-"""ファイル読み取りツール"""
+"""File reading tool."""
 
 from lightcode.tools.base import Tool
 
 
 class ReadFileTool(Tool):
-    """ファイルの内容を読み取るツール"""
+    """Tool for reading file contents."""
 
     @property
     def name(self) -> str:
@@ -12,22 +12,22 @@ class ReadFileTool(Tool):
 
     @property
     def description(self) -> str:
-        return "指定したファイルの内容を読み取る。行範囲を指定可能。"
+        return "Read the contents of a file. Supports optional line range."
 
     @property
     def parameters(self) -> dict:
         return {
             "path": {
                 "type": "string",
-                "description": "読み取るファイルのパス",
+                "description": "Path to the file to read",
             },
             "start_line": {
                 "type": "integer",
-                "description": "読み取り開始行（1始まり、省略時は先頭から）",
+                "description": "Starting line number (1-based, optional)",
             },
             "end_line": {
                 "type": "integer",
-                "description": "読み取り終了行（含む、省略時は末尾まで）",
+                "description": "Ending line number (inclusive, optional)",
             },
         }
 
@@ -45,7 +45,7 @@ class ReadFileTool(Tool):
 
             total_lines = len(lines)
 
-            # 範囲の正規化（1始まり→0始まり）
+            # Normalize range (1-based to 0-based)
             start_idx = 0 if start_line is None else max(0, start_line - 1)
             end_idx = total_lines if end_line is None else min(total_lines, end_line)
 
@@ -55,7 +55,7 @@ class ReadFileTool(Tool):
             selected_lines = lines[start_idx:end_idx]
             content = "".join(selected_lines)
 
-            # 範囲指定がある場合はメタ情報を付与
+            # Add metadata if range is specified
             if start_line is not None or end_line is not None:
                 header = f"[Lines {start_idx + 1}-{start_idx + len(selected_lines)} of {total_lines}]\n"
                 return header + content

@@ -1,4 +1,4 @@
-"""ファイルコピーツール"""
+"""File copy tool."""
 
 import shutil
 
@@ -6,7 +6,7 @@ from lightcode.tools.base import Tool
 
 
 class CopyFileTool(Tool):
-    """ファイルをコピーするツール"""
+    """Tool for copying a file."""
 
     @property
     def name(self) -> str:
@@ -14,19 +14,19 @@ class CopyFileTool(Tool):
 
     @property
     def description(self) -> str:
-        return "ファイルをコピーする。"
+        return "Copy a file."
 
     @property
     def parameters(self) -> dict:
         return {
             "source": {
                 "type": "string",
-                "description": "コピー元のファイルパス",
+                "description": "Source file path",
                 "required": True,
             },
             "destination": {
                 "type": "string",
-                "description": "コピー先のパス",
+                "description": "Destination path",
                 "required": True,
             },
         }

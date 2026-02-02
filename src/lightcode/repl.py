@@ -1,4 +1,4 @@
-"""シンプルなREPLループ（LiteLLM対応・Tool Calling）"""
+"""Simple REPL loop with LiteLLM and Tool Calling support."""
 
 import argparse
 import json
@@ -30,7 +30,7 @@ You are working in: {cwd}
 
 
 def build_agents_md_message(cwd: Path) -> str | None:
-    """AGENTS.md を読み込んで Codex スタイルのメッセージを構築"""
+    """Load AGENTS.md and build a Codex-style message."""
     agents_md = cwd / "AGENTS.md"
     if not agents_md.exists():
         return None
@@ -52,7 +52,7 @@ def run_repl(
     enable_web_search: bool = False,
     log_file: Path | None = None,
 ) -> None:
-    """REPLを起動する"""
+    """Start the REPL."""
     model = os.environ.get("LIGHTCODE_MODEL", "gpt-5.2")
 
     console.print()
@@ -61,15 +61,15 @@ def run_repl(
         border_style="blue",
     ))
     if skip_permission:
-        console.print("[warning]⚡ --no-permissions モード: ツール実行の許可確認をスキップ[/]")
+        console.print("[warning]⚡ --no-permissions mode: skipping tool permission prompts[/]")
     if enable_web_search:
-        console.print("[success]🌐 Web検索が有効です (Tavily)[/]")
+        console.print("[success]🌐 Web search enabled (Tavily)[/]")
     if log_file:
-        console.print(f"[success]📝 ログ出力: {log_file}[/]")
-    console.print("[muted]終了するには 'exit' または 'quit' と入力してください[/]")
+        console.print(f"[success]📝 Logging to: {log_file}[/]")
+    console.print("[muted]Type 'exit' or 'quit' to exit[/]")
     console.print()
 
-    # ツールリストを構築
+    # Build tool list
     tools = list(ALL_TOOLS)
     if enable_web_search:
         tools.append(WebSearchTool())
@@ -78,17 +78,17 @@ def run_repl(
     max_tokens = model_info.get("max_input_tokens", 128_000)
     registry = ToolRegistry(tools)
 
-    # システムプロンプトを設定
+    # Set up system prompt
     cwd = Path.cwd()
     messages: list[dict] = [
         {"role": "system", "content": SYSTEM_PROMPT.format(cwd=cwd)},
     ]
 
-    # AGENTS.md があればユーザーメッセージとして読み込む
+    # Load AGENTS.md as user message if exists
     agents_message = build_agents_md_message(cwd)
     if agents_message:
         messages.append({"role": "user", "content": agents_message})
-        console.print("[success]📋 AGENTS.md を読み込みました[/]")
+        console.print("[success]📋 Loaded AGENTS.md[/]")
 
     def format_tokens(n: int) -> str:
         if n >= 1_000_000:
@@ -99,7 +99,7 @@ def run_repl(
 
     while True:
         try:
-            # ステータス行を表示
+            # Display status line
             token_count = litellm.token_counter(model=model, messages=messages)
             percentage = token_count * 100 // max_tokens
             console.print(f"[muted]{format_tokens(token_count)} / {format_tokens(max_tokens)} tokens ({percentage} %)[/]")
@@ -119,7 +119,7 @@ def run_repl(
                 append_log(log_file, user_message)
 
 
-            # LLMにリクエスト（ツール付き）
+            # Send request to LLM with tools
             while True:
                 with console.status("[bold blue]Thinking...", spinner="dots"):
                     response = litellm.completion(
@@ -131,13 +131,13 @@ def run_repl(
                 choice = response.choices[0]
                 assistant_message = choice.message
 
-                # メッセージを履歴に追加
+                # Add message to history
                 assistant_dict = assistant_message.model_dump()
                 messages.append(assistant_dict)
                 if log_file:
                     append_log(log_file, assistant_dict)
 
-                # ツール呼び出しがあるか確認
+                # Check for tool calls
                 if assistant_message.tool_calls:
                     total = len(assistant_message.tool_calls)
                     for i, tool_call in enumerate(assistant_message.tool_calls, start=1):
@@ -153,7 +153,7 @@ def run_repl(
                             skip_permission=skip_permission,
                         )
 
-                        # ツール結果を追加
+                        # Add tool result
                         tool_message = {
                             "role": "tool",
                             "tool_call_id": tool_call.id,
@@ -162,10 +162,10 @@ def run_repl(
                         messages.append(tool_message)
                         if log_file:
                             append_log(log_file, tool_message)
-                    # ツール結果を渡して再度LLMを呼び出す
+                    # Call LLM again with tool results
                     continue
                 else:
-                    # ツール呼び出しがなければ終了
+                    # No tool calls, display response
                     if assistant_message.content:
                         console.print()
                         console.print(Panel(
@@ -189,22 +189,22 @@ def run_repl(
 
 
 def main() -> None:
-    """エントリポイント"""
+    """Entry point."""
     parser = argparse.ArgumentParser(description="lightcode REPL")
     parser.add_argument(
         "--no-permissions",
         action="store_true",
-        help="ツール実行時の許可確認をスキップする",
+        help="Skip permission prompts for tool execution",
     )
     parser.add_argument(
         "--web-search",
         action="store_true",
-        help="Web検索ツールを有効にする（TAVILY_API_KEY環境変数が必要）",
+        help="Enable web search tools (requires TAVILY_API_KEY)",
     )
     parser.add_argument(
         "--log-file",
         type=Path,
-        help="LLMとのやり取りをJSONファイルに保存する",
+        help="Save session log to JSONL file",
     )
     args = parser.parse_args()
 

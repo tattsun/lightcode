@@ -1,4 +1,4 @@
-"""ファイル書き込みツール"""
+"""File writing tool."""
 
 import os
 
@@ -6,7 +6,7 @@ from lightcode.tools.base import Tool
 
 
 class WriteFileTool(Tool):
-    """ファイルに内容を書き込むツール"""
+    """Tool for writing content to a file."""
 
     @property
     def name(self) -> str:
@@ -14,18 +14,18 @@ class WriteFileTool(Tool):
 
     @property
     def description(self) -> str:
-        return "指定したファイルに内容を書き込む（既存ファイルは上書き）"
+        return "Write content to a file (overwrites existing file)"
 
     @property
     def parameters(self) -> dict:
         return {
             "path": {
                 "type": "string",
-                "description": "書き込むファイルのパス",
+                "description": "Path to the file to write",
             },
             "content": {
                 "type": "string",
-                "description": "書き込む内容",
+                "description": "Content to write",
             },
         }
 
@@ -39,7 +39,7 @@ class WriteFileTool(Tool):
             return "Error: content is required"
 
         try:
-            # 親ディレクトリが存在しない場合は作成
+            # Create parent directory if it doesn't exist
             parent = os.path.dirname(path)
             if parent and not os.path.exists(parent):
                 os.makedirs(parent)

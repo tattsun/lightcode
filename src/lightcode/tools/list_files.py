@@ -1,4 +1,4 @@
-"""ファイル一覧取得ツール"""
+"""File listing tool."""
 
 import os
 
@@ -6,7 +6,7 @@ from lightcode.tools.base import Tool
 
 
 class ListFilesTool(Tool):
-    """ディレクトリ内のファイル一覧を取得するツール"""
+    """Tool for listing files in a directory."""
 
     @property
     def name(self) -> str:
@@ -14,14 +14,14 @@ class ListFilesTool(Tool):
 
     @property
     def description(self) -> str:
-        return "指定したディレクトリ内のファイルとフォルダの一覧を取得する"
+        return "List files and folders in a directory"
 
     @property
     def parameters(self) -> dict:
         return {
             "path": {
                 "type": "string",
-                "description": "一覧を取得するディレクトリのパス（デフォルトはカレントディレクトリ）",
+                "description": "Directory path (default: current directory)",
             }
         }
 

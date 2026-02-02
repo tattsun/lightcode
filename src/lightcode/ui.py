@@ -1,4 +1,4 @@
-"""UI表示関連の機能"""
+"""UI display functions."""
 
 import json
 
@@ -8,7 +8,7 @@ from rich.syntax import Syntax
 from rich.text import Text
 from rich.theme import Theme
 
-# カスタムテーマ
+# Custom theme
 custom_theme = Theme({
     "tool.name": "bold cyan",
     "tool.index": "dim",
@@ -20,13 +20,13 @@ custom_theme = Theme({
 
 console = Console(theme=custom_theme)
 
-# 表示制限
+# Display limits
 MAX_RESULT_LINES = 5
 MAX_LINE_LENGTH = 80
 
 
 def truncate_result(result: str) -> str:
-    """ツールの結果を省略して表示用に整形"""
+    """Truncate tool result for display."""
     lines = result.split("\n")
     truncated_lines = []
 
@@ -44,13 +44,13 @@ def truncate_result(result: str) -> str:
 
 
 def format_arguments(arguments: dict) -> Syntax:
-    """引数をJSON構文ハイライト付きで整形"""
+    """Format arguments as syntax-highlighted JSON."""
     json_str = json.dumps(arguments, ensure_ascii=False, indent=2)
     return Syntax(json_str, "json", theme="monokai", line_numbers=False)
 
 
 def render_tool_header(name: str, index: int, total: int) -> Text:
-    """ツールヘッダーをリッチテキストで生成"""
+    """Render tool header as rich text."""
     text = Text()
     text.append("🔧 ", style="bold")
     text.append(name, style="tool.name")
@@ -59,7 +59,7 @@ def render_tool_header(name: str, index: int, total: int) -> Text:
 
 
 def render_result(result: str, is_error: bool = False) -> Panel:
-    """ツール結果をパネルで表示"""
+    """Render tool result as a panel."""
     truncated = truncate_result(result)
     style = "red" if is_error else "green"
     icon = "❌" if is_error else "✅"
@@ -74,16 +74,16 @@ def render_result(result: str, is_error: bool = False) -> Panel:
 
 
 def request_permission(name: str, arguments: dict, index: int, total: int) -> bool:
-    """ツール実行の許可をユーザーに求める"""
+    """Request user permission for tool execution."""
     console.print()
 
-    # ヘッダー
+    # Header
     header = render_tool_header(name, index, total)
 
-    # 引数パネル
+    # Arguments panel
     args_syntax = format_arguments(arguments)
 
-    # パネルで表示
+    # Display panel
     console.print(Panel(
         args_syntax,
         title=header,
@@ -94,9 +94,9 @@ def request_permission(name: str, arguments: dict, index: int, total: int) -> bo
     ))
 
     while True:
-        answer = console.input("[yellow]実行を許可しますか？ [y/n]:[/] ").strip().lower()
+        answer = console.input("[yellow]Allow execution? [y/n]:[/] ").strip().lower()
         if answer in ("y", "yes"):
             return True
         if answer in ("n", "no"):
             return False
-        console.print("[warning]y または n で回答してください[/]")
+        console.print("[warning]Please answer y or n[/]")

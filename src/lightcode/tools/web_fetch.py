@@ -1,4 +1,4 @@
-"""Webページ取得ツール"""
+"""Web page fetch tool."""
 
 import re
 
@@ -9,7 +9,7 @@ from lightcode.tools.base import Tool
 
 
 class WebFetchTool(Tool):
-    """URLからWebページの内容を取得するツール"""
+    """Tool for fetching web page content from a URL."""
 
     @property
     def name(self) -> str:
@@ -17,19 +17,19 @@ class WebFetchTool(Tool):
 
     @property
     def description(self) -> str:
-        return "URLを指定してWebページの内容を取得する。ドキュメントやコード例の詳細確認に使用。"
+        return "Fetch web page content from a URL. Use for documentation or code examples."
 
     @property
     def parameters(self) -> dict:
         return {
             "url": {
                 "type": "string",
-                "description": "取得するWebページのURL",
+                "description": "URL of the web page to fetch",
                 "required": True,
             },
             "max_length": {
                 "type": "integer",
-                "description": "取得するテキストの最大文字数（デフォルト: 10000）",
+                "description": "Maximum text length (default: 10000)",
             },
         }
 
@@ -49,37 +49,37 @@ class WebFetchTool(Tool):
 
         content_type = response.headers.get("Content-Type", "")
 
-        # HTMLの場合はパースしてテキスト抽出
+        # Parse HTML and extract text
         if "text/html" in content_type:
             soup = BeautifulSoup(response.text, "html.parser")
 
-            # 不要な要素を削除
+            # Remove unnecessary elements
             for tag in soup(["script", "style", "nav", "footer", "header", "aside"]):
                 tag.decompose()
 
-            # タイトル取得
+            # Get title
             title = soup.title.string if soup.title else "No title"
 
-            # メインコンテンツを取得
+            # Get main content
             main_content = soup.find("article") or soup.find("main") or soup.body
             if main_content:
                 text = main_content.get_text(separator="\n", strip=True)
             else:
                 text = soup.get_text(separator="\n", strip=True)
 
-            # 複数の空行を1つにまとめる
+            # Collapse multiple blank lines
             text = re.sub(r"\n{3,}", "\n\n", text)
 
             output = f"# {title}\n\nURL: {url}\n\n{text}"
 
-        # プレーンテキストやJSONの場合はそのまま
+        # Plain text or JSON
         elif "text/" in content_type or "application/json" in content_type:
             output = f"URL: {url}\n\n{response.text}"
 
         else:
             return f"Error: Unsupported content type: {content_type}"
 
-        # 長さ制限
+        # Length limit
         if len(output) > max_length:
             output = output[:max_length] + f"\n\n... (truncated at {max_length} characters)"
 

@@ -1,4 +1,4 @@
-"""ファイル名検索ツール"""
+"""File name search tool."""
 
 import fnmatch
 import os
@@ -7,7 +7,7 @@ from lightcode.tools.base import Tool
 
 
 class FindFilesTool(Tool):
-    """ファイル名をパターンで検索するツール"""
+    """Tool for searching files by name pattern."""
 
     @property
     def name(self) -> str:
@@ -15,23 +15,23 @@ class FindFilesTool(Tool):
 
     @property
     def description(self) -> str:
-        return "ファイル名をglobパターンで検索する。"
+        return "Search for files by glob pattern."
 
     @property
     def parameters(self) -> dict:
         return {
             "pattern": {
                 "type": "string",
-                "description": "検索するglobパターン（例: *.py, test_*.py）",
+                "description": "Glob pattern to search for (e.g., *.py, test_*.py)",
                 "required": True,
             },
             "path": {
                 "type": "string",
-                "description": "検索対象のディレクトリパス（デフォルト: カレントディレクトリ）",
+                "description": "Directory to search in (default: current directory)",
             },
             "max_results": {
                 "type": "integer",
-                "description": "最大結果数（デフォルト: 100）",
+                "description": "Maximum number of results (default: 100)",
             },
         }
 
@@ -47,7 +47,7 @@ class FindFilesTool(Tool):
 
         try:
             for root, dirs, files in os.walk(path):
-                # 隠しディレクトリをスキップ
+                # Skip hidden directories
                 dirs[:] = [d for d in dirs if not d.startswith(".")]
 
                 for filename in files:

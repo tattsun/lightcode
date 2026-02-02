@@ -1,4 +1,4 @@
-"""ツールモジュール"""
+"""Tools module."""
 
 from lightcode.tools.base import Tool
 from lightcode.tools.copy_file import CopyFileTool
@@ -15,18 +15,18 @@ from lightcode.tools.web_fetch import WebFetchTool
 from lightcode.tools.web_search import WebSearchTool
 from lightcode.tools.write_file import WriteFileTool
 
-# 利用可能なツール一覧
+# Available tools
 ALL_TOOLS: list[Tool] = [
-    # Tier 1 - 必須
+    # Tier 1 - Essential
     RunCommandTool(),
     GrepTool(),
     FindFilesTool(),
-    # ファイル操作
+    # File operations
     ListFilesTool(),
     ReadFileTool(),
     WriteFileTool(),
     EditFileTool(),
-    # Tier 2 - 便利
+    # Tier 2 - Utilities
     DeleteFileTool(),
     MoveFileTool(),
     CopyFileTool(),

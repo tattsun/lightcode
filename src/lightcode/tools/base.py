@@ -1,37 +1,37 @@
-"""ツールの基底クラス"""
+"""Base class for tools."""
 
 from abc import ABC, abstractmethod
 
 
 class Tool(ABC):
-    """ツールの基底クラス"""
+    """Base class for tools."""
 
     @property
     @abstractmethod
     def name(self) -> str:
-        """ツール名"""
+        """Tool name."""
         ...
 
     @property
     @abstractmethod
     def description(self) -> str:
-        """ツールの説明"""
+        """Tool description."""
         ...
 
     @property
     @abstractmethod
     def parameters(self) -> dict:
-        """パラメータのJSON Schema"""
+        """JSON Schema for parameters."""
         ...
 
     @abstractmethod
     def execute(self, **kwargs) -> str:
-        """ツールを実行"""
+        """Execute the tool."""
         ...
 
     def to_schema(self) -> dict:
-        """LLM用のツールスキーマを生成"""
-        # propertiesから "required" キーを除去したものを作成
+        """Generate tool schema for LLM."""
+        # Create properties without the "required" key
         properties = {
             k: {pk: pv for pk, pv in v.items() if pk != "required"}
             for k, v in self.parameters.items()

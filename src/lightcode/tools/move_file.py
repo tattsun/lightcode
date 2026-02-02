@@ -1,4 +1,4 @@
-"""ファイル移動/リネームツール"""
+"""File move/rename tool."""
 
 import shutil
 
@@ -6,7 +6,7 @@ from lightcode.tools.base import Tool
 
 
 class MoveFileTool(Tool):
-    """ファイルを移動/リネームするツール"""
+    """Tool for moving or renaming a file."""
 
     @property
     def name(self) -> str:
@@ -14,19 +14,19 @@ class MoveFileTool(Tool):
 
     @property
     def description(self) -> str:
-        return "ファイルを移動またはリネームする。"
+        return "Move or rename a file."
 
     @property
     def parameters(self) -> dict:
         return {
             "source": {
                 "type": "string",
-                "description": "移動元のファイルパス",
+                "description": "Source file path",
                 "required": True,
             },
             "destination": {
                 "type": "string",
-                "description": "移動先のパス",
+                "description": "Destination path",
                 "required": True,
             },
         }
