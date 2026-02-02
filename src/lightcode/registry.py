@@ -57,7 +57,8 @@ def execute_tool(
         ))
 
     try:
-        result = registry.execute(name, arguments)
+        with console.status(f"[bold cyan]Executing {name}...", spinner="dots"):
+            result = registry.execute(name, arguments)
         is_error = False
     except Exception as e:
         result = f"Error: {type(e).__name__}: {e}"

@@ -15,6 +15,19 @@ from lightcode.registry import ToolRegistry, execute_tool
 from lightcode.tools import ALL_TOOLS, WebFetchTool, WebSearchTool
 from lightcode.ui import console
 
+SYSTEM_PROMPT = """\
+You are a coding agent that helps users with software engineering tasks.
+
+## Guidelines
+- Use tools to read files before modifying them.
+- Make minimal, focused changes. Do not add unnecessary code.
+- Verify your changes work before reporting completion.
+- If a task is unclear, ask for clarification.
+
+## Working Directory
+You are working in: {cwd}
+"""
+
 
 def run_repl(
     *,
@@ -47,13 +60,25 @@ def run_repl(
     model_info = litellm.get_model_info(model)
     max_tokens = model_info.get("max_input_tokens", 128_000)
     registry = ToolRegistry(tools)
-    messages: list[dict] = []
+
+    # システムプロンプトを設定
+    cwd = Path.cwd()
+    messages: list[dict] = [
+        {"role": "system", "content": SYSTEM_PROMPT.format(cwd=cwd)},
+    ]
+
+    # AGENTS.md があればユーザーメッセージとして読み込む
+    agents_md = Path("AGENTS.md")
+    if agents_md.exists():
+        agents_content = agents_md.read_text(encoding="utf-8")
+        messages.append({"role": "user", "content": f"# AGENTS.md Instructions\n<INSTRUCTIONS>\n{agents_content}\n<INSTRUCTIONS>"})
+        console.print("[success]📋 AGENTS.md を読み込みました[/]")
 
     def format_tokens(n: int) -> str:
         if n >= 1_000_000:
             return f"{n / 1_000_000:.1f}M"
         if n >= 1_000:
-            return f"{n / 1_000:.0f}K"
+            return f"{n / 1_000:.1f}K"
         return str(n)
 
     while True:
@@ -61,7 +86,7 @@ def run_repl(
             # ステータス行を表示
             token_count = litellm.token_counter(model=model, messages=messages)
             percentage = token_count * 100 // max_tokens
-            console.print(f"[muted]{token_count:,} / {format_tokens(max_tokens)} tokens ({percentage} %)[/]")
+            console.print(f"[muted]{format_tokens(token_count)} / {format_tokens(max_tokens)} tokens ({percentage} %)[/]")
 
             user_input = pt_prompt("> ").strip()
 
@@ -80,11 +105,12 @@ def run_repl(
 
             # LLMにリクエスト（ツール付き）
             while True:
-                response = litellm.completion(
-                    model=model,
-                    messages=messages,
-                    tools=registry.get_schemas(),
-                )
+                with console.status("[bold blue]Thinking...", spinner="dots"):
+                    response = litellm.completion(
+                        model=model,
+                        messages=messages,
+                        tools=registry.get_schemas(),
+                    )
 
                 choice = response.choices[0]
                 assistant_message = choice.message
