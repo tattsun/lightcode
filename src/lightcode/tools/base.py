@@ -31,6 +31,11 @@ class Tool(ABC):
 
     def to_schema(self) -> dict:
         """LLM用のツールスキーマを生成"""
+        # propertiesから "required" キーを除去したものを作成
+        properties = {
+            k: {pk: pv for pk, pv in v.items() if pk != "required"}
+            for k, v in self.parameters.items()
+        }
         return {
             "type": "function",
             "function": {
@@ -38,7 +43,7 @@ class Tool(ABC):
                 "description": self.description,
                 "parameters": {
                     "type": "object",
-                    "properties": self.parameters,
+                    "properties": properties,
                     "required": [
                         k for k, v in self.parameters.items() if v.get("required")
                     ],

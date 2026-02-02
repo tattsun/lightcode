@@ -2,6 +2,8 @@
 
 import argparse
 import json
+from datetime import datetime
+from pathlib import Path
 
 import litellm
 from rich.console import Console
@@ -11,7 +13,7 @@ from rich.syntax import Syntax
 from rich.text import Text
 from rich.theme import Theme
 
-from lightcode.tools import ALL_TOOLS, Tool
+from lightcode.tools import ALL_TOOLS, Tool, WebFetchTool, WebSearchTool
 
 # カスタムテーマ
 custom_theme = Theme({
@@ -164,7 +166,22 @@ def execute_tool(
     return result
 
 
-def run_repl(*, skip_permission: bool = False) -> None:
+def append_log(log_file: Path, entry: dict) -> None:
+    """ログエントリをJSONLファイルに追記"""
+    log_entry = {
+        "timestamp": datetime.now().isoformat(),
+        **entry,
+    }
+    with log_file.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
+
+
+def run_repl(
+    *,
+    skip_permission: bool = False,
+    enable_web_search: bool = False,
+    log_file: Path | None = None,
+) -> None:
     """REPLを起動する"""
     console.print()
     console.print(Panel(
@@ -173,10 +190,21 @@ def run_repl(*, skip_permission: bool = False) -> None:
     ))
     if skip_permission:
         console.print("[warning]⚡ --no-permissions モード: ツール実行の許可確認をスキップ[/]")
+    if enable_web_search:
+        console.print("[success]🌐 Web検索が有効です (Tavily)[/]")
+    if log_file:
+        console.print(f"[success]📝 ログ出力: {log_file}[/]")
     console.print("[muted]終了するには 'exit' または 'quit' と入力してください[/]")
     console.print()
 
-    registry = ToolRegistry(ALL_TOOLS)
+    # ツールリストを構築
+    tools = list(ALL_TOOLS)
+    if enable_web_search:
+        tools.append(WebSearchTool())
+        tools.append(WebFetchTool())
+
+    model = "gpt-5.2"
+    registry = ToolRegistry(tools)
     messages: list[dict] = []
 
     while True:
@@ -190,12 +218,15 @@ def run_repl(*, skip_permission: bool = False) -> None:
                 print("Goodbye!")
                 break
 
-            messages.append({"role": "user", "content": user_input})
+            user_message = {"role": "user", "content": user_input}
+            messages.append(user_message)
+            if log_file:
+                append_log(log_file, user_message)
 
             # LLMにリクエスト（ツール付き）
             while True:
                 response = litellm.completion(
-                    model="gpt-5.2",
+                    model=model,
                     messages=messages,
                     tools=registry.get_schemas(),
                 )
@@ -204,7 +235,10 @@ def run_repl(*, skip_permission: bool = False) -> None:
                 assistant_message = choice.message
 
                 # メッセージを履歴に追加
-                messages.append(assistant_message.model_dump())
+                assistant_dict = assistant_message.model_dump()
+                messages.append(assistant_dict)
+                if log_file:
+                    append_log(log_file, assistant_dict)
 
                 # ツール呼び出しがあるか確認
                 if assistant_message.tool_calls:
@@ -223,13 +257,14 @@ def run_repl(*, skip_permission: bool = False) -> None:
                         )
 
                         # ツール結果を追加
-                        messages.append(
-                            {
-                                "role": "tool",
-                                "tool_call_id": tool_call.id,
-                                "content": result,
-                            }
-                        )
+                        tool_message = {
+                            "role": "tool",
+                            "tool_call_id": tool_call.id,
+                            "content": result,
+                        }
+                        messages.append(tool_message)
+                        if log_file:
+                            append_log(log_file, tool_message)
                     # ツール結果を渡して再度LLMを呼び出す
                     continue
                 else:
@@ -264,9 +299,23 @@ def main() -> None:
         action="store_true",
         help="ツール実行時の許可確認をスキップする",
     )
+    parser.add_argument(
+        "--web-search",
+        action="store_true",
+        help="Web検索ツールを有効にする（TAVILY_API_KEY環境変数が必要）",
+    )
+    parser.add_argument(
+        "--log-file",
+        type=Path,
+        help="LLMとのやり取りをJSONファイルに保存する",
+    )
     args = parser.parse_args()
 
-    run_repl(skip_permission=args.no_permissions)
+    run_repl(
+        skip_permission=args.no_permissions,
+        enable_web_search=args.web_search,
+        log_file=args.log_file,
+    )
 
 
 if __name__ == "__main__":

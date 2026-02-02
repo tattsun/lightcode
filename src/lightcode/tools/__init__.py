@@ -11,6 +11,8 @@ from lightcode.tools.list_files import ListFilesTool
 from lightcode.tools.move_file import MoveFileTool
 from lightcode.tools.read_file import ReadFileTool
 from lightcode.tools.run_command import RunCommandTool
+from lightcode.tools.web_fetch import WebFetchTool
+from lightcode.tools.web_search import WebSearchTool
 from lightcode.tools.write_file import WriteFileTool
 
 # 利用可能なツール一覧
@@ -43,6 +45,8 @@ __all__ = [
     "MoveFileTool",
     "ReadFileTool",
     "RunCommandTool",
+    "WebFetchTool",
+    "WebSearchTool",
     "WriteFileTool",
     "ALL_TOOLS",
 ]

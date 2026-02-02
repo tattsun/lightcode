@@ -1,6 +1,7 @@
 CLAUDE.local.md
 .envrc
 sandbox
+logs
 
 # python generated files
 __pycache__/
