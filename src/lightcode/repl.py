@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import os
 from datetime import datetime
 from pathlib import Path
 
@@ -185,9 +186,11 @@ def run_repl(
     log_file: Path | None = None,
 ) -> None:
     """REPLを起動する"""
+    model = os.environ.get("LIGHTCODE_MODEL", "gpt-5.2")
+
     console.print()
     console.print(Panel(
-        "[bold]lightcode REPL[/] [dim](GPT-5.2 + Tool Calling)[/]",
+        f"[bold]lightcode REPL[/] [dim]({model} + Tool Calling)[/]",
         border_style="blue",
     ))
     if skip_permission:
@@ -204,13 +207,25 @@ def run_repl(
     if enable_web_search:
         tools.append(WebSearchTool())
         tools.append(WebFetchTool())
-
-    model = "gpt-5.2"
+    model_info = litellm.get_model_info(model)
+    max_tokens = model_info.get("max_input_tokens", 128_000)
     registry = ToolRegistry(tools)
     messages: list[dict] = []
 
+    def format_tokens(n: int) -> str:
+        if n >= 1_000_000:
+            return f"{n / 1_000_000:.1f}M"
+        if n >= 1_000:
+            return f"{n / 1_000:.0f}K"
+        return str(n)
+
     while True:
         try:
+            # ステータス行を表示
+            token_count = litellm.token_counter(model=model, messages=messages)
+            percentage = token_count * 100 // max_tokens
+            console.print(f"[muted]{token_count:,} / {format_tokens(max_tokens)} tokens ({percentage} %)[/]")
+
             user_input = input("> ").strip()
 
             if not user_input:
@@ -224,6 +239,7 @@ def run_repl(
             messages.append(user_message)
             if log_file:
                 append_log(log_file, user_message)
+
 
             # LLMにリクエスト（ツール付き）
             while True:
