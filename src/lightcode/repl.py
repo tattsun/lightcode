@@ -7,6 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 import litellm
+from prompt_toolkit import prompt as pt_prompt
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.panel import Panel
@@ -226,7 +227,7 @@ def run_repl(
             percentage = token_count * 100 // max_tokens
             console.print(f"[muted]{token_count:,} / {format_tokens(max_tokens)} tokens ({percentage} %)[/]")
 
-            user_input = input("> ").strip()
+            user_input = pt_prompt("> ").strip()
 
             if not user_input:
                 continue
