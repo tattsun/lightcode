@@ -74,8 +74,12 @@ jsonschema-specifications==2025.9.1
     # via jsonschema
 litellm==1.81.6
     # via lightcode
+markdown-it-py==4.0.0
+    # via rich
 markupsafe==3.0.3
     # via jinja2
+mdurl==0.1.2
+    # via markdown-it-py
 multidict==6.7.1
     # via aiohttp
     # via yarl
@@ -91,6 +95,8 @@ pydantic==2.12.5
     # via openai
 pydantic-core==2.41.5
     # via pydantic
+pygments==2.19.2
+    # via rich
 python-dotenv==1.2.1
     # via litellm
 pyyaml==6.0.3
@@ -102,6 +108,8 @@ regex==2026.1.15
     # via tiktoken
 requests==2.32.5
     # via tiktoken
+rich==14.3.2
+    # via lightcode
 rpds-py==0.30.0
     # via jsonschema
     # via referencing

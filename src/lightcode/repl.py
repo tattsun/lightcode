@@ -2,91 +2,180 @@
 
 import argparse
 import json
-import os
 
 import litellm
+from rich.console import Console
+from rich.panel import Panel
+from rich.syntax import Syntax
+from rich.text import Text
+from rich.theme import Theme
 
-# ツール定義
-TOOLS = [
-    {
-        "type": "function",
-        "function": {
-            "name": "list_files",
-            "description": "指定したディレクトリ内のファイルとフォルダの一覧を取得する",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "path": {
-                        "type": "string",
-                        "description": "一覧を取得するディレクトリのパス（デフォルトはカレントディレクトリ）",
-                    }
-                },
-                "required": [],
-            },
-        },
-    }
-]
+from lightcode.tools import ALL_TOOLS, Tool
+
+# カスタムテーマ
+custom_theme = Theme({
+    "tool.name": "bold cyan",
+    "tool.index": "dim",
+    "success": "green",
+    "error": "bold red",
+    "warning": "yellow",
+    "muted": "dim",
+})
+
+console = Console(theme=custom_theme)
 
 
-def list_files(path: str = ".") -> str:
-    """ディレクトリ内のファイル一覧を取得"""
-    try:
-        entries = os.listdir(path)
-        result = []
-        for entry in sorted(entries):
-            full_path = os.path.join(path, entry)
-            if os.path.isdir(full_path):
-                result.append(f"[DIR]  {entry}")
-            else:
-                result.append(f"[FILE] {entry}")
-        return "\n".join(result) if result else "(empty directory)"
-    except FileNotFoundError:
-        return f"Error: Directory not found: {path}"
-    except PermissionError:
-        return f"Error: Permission denied: {path}"
+class ToolRegistry:
+    """ツールの登録・管理"""
+
+    def __init__(self, tools: list[Tool]) -> None:
+        self._tools = {tool.name: tool for tool in tools}
+
+    def get_schemas(self) -> list[dict]:
+        """全ツールのスキーマを取得"""
+        return [tool.to_schema() for tool in self._tools.values()]
+
+    def execute(self, name: str, arguments: dict) -> str:
+        """ツールを実行"""
+        tool = self._tools.get(name)
+        if tool is None:
+            return f"Error: Unknown tool: {name}"
+        return tool.execute(**arguments)
+
+
+MAX_RESULT_LINES = 5
+MAX_LINE_LENGTH = 80
+
+
+def truncate_result(result: str) -> str:
+    """ツールの結果を省略して表示用に整形"""
+    lines = result.split("\n")
+    truncated_lines = []
+
+    for line in lines[:MAX_RESULT_LINES]:
+        if len(line) > MAX_LINE_LENGTH:
+            truncated_lines.append(line[: MAX_LINE_LENGTH - 3] + "...")
+        else:
+            truncated_lines.append(line)
+
+    output = "\n".join(truncated_lines)
+    if len(lines) > MAX_RESULT_LINES:
+        output += f"\n... ({len(lines) - MAX_RESULT_LINES} more lines)"
+
+    return output
+
+
+def format_arguments(arguments: dict) -> Syntax:
+    """引数をJSON構文ハイライト付きで整形"""
+    json_str = json.dumps(arguments, ensure_ascii=False, indent=2)
+    return Syntax(json_str, "json", theme="monokai", line_numbers=False)
+
+
+def render_tool_header(name: str, index: int, total: int) -> Text:
+    """ツールヘッダーをリッチテキストで生成"""
+    text = Text()
+    text.append("🔧 ", style="bold")
+    text.append(name, style="tool.name")
+    text.append(f"  ({index}/{total})", style="tool.index")
+    return text
 
 
 def request_permission(name: str, arguments: dict, index: int, total: int) -> bool:
     """ツール実行の許可をユーザーに求める"""
-    print(f"\n[Tool Call Request ({index}/{total})]")
-    print(f"  Name: {name}")
-    print(f"  Args: {json.dumps(arguments, ensure_ascii=False)}")
+    console.print()
+
+    # ヘッダー
+    header = render_tool_header(name, index, total)
+
+    # 引数パネル
+    args_syntax = format_arguments(arguments)
+
+    # パネルで表示
+    console.print(Panel(
+        args_syntax,
+        title=header,
+        title_align="left",
+        border_style="yellow",
+        subtitle="⚠️  Permission Required",
+        subtitle_align="right",
+    ))
 
     while True:
-        answer = input("実行を許可しますか？ [y/n]: ").strip().lower()
+        answer = console.input("[yellow]実行を許可しますか？ [y/n]:[/] ").strip().lower()
         if answer in ("y", "yes"):
             return True
         if answer in ("n", "no"):
             return False
-        print("y または n で回答してください")
+        console.print("[warning]y または n で回答してください[/]")
+
+
+def render_result(result: str, is_error: bool = False) -> Panel:
+    """ツール結果をパネルで表示"""
+    truncated = truncate_result(result)
+    style = "red" if is_error else "green"
+    icon = "❌" if is_error else "✅"
+
+    return Panel(
+        Text(truncated),
+        title=f"{icon} Result",
+        title_align="left",
+        border_style=style,
+        padding=(0, 1),
+    )
 
 
 def execute_tool(
-    name: str, arguments: dict, index: int, total: int, *, skip_permission: bool = False
+    registry: ToolRegistry,
+    name: str,
+    arguments: dict,
+    index: int,
+    total: int,
+    *,
+    skip_permission: bool = False,
 ) -> str:
     """ツールを実行（許可を求める）"""
     if not skip_permission:
         if not request_permission(name, arguments, index, total):
+            console.print("[muted]Tool execution denied[/]")
             return "Error: Tool execution was denied by user."
     else:
-        print(f"\n[Tool Call ({index}/{total})] {name}({json.dumps(arguments, ensure_ascii=False)})")
+        # スキップモード: コンパクトな表示
+        console.print()
+        header = render_tool_header(name, index, total)
+        args_syntax = format_arguments(arguments)
+        console.print(Panel(
+            args_syntax,
+            title=header,
+            title_align="left",
+            border_style="cyan",
+        ))
 
     try:
-        if name == "list_files":
-            return list_files(arguments.get("path", "."))
-        return f"Error: Unknown tool: {name}"
+        result = registry.execute(name, arguments)
+        is_error = False
     except Exception as e:
-        return f"Error: {type(e).__name__}: {e}"
+        result = f"Error: {type(e).__name__}: {e}"
+        is_error = True
+
+    # 結果を表示
+    console.print(render_result(result, is_error))
+
+    return result
 
 
 def run_repl(*, skip_permission: bool = False) -> None:
     """REPLを起動する"""
-    print("lightcode REPL (GPT-5.2 + Tool Calling)")
+    console.print()
+    console.print(Panel(
+        "[bold]lightcode REPL[/] [dim](GPT-5.2 + Tool Calling)[/]",
+        border_style="blue",
+    ))
     if skip_permission:
-        print("[--no-permissions モード: ツール実行の許可確認をスキップ]")
-    print("終了するには 'exit' または 'quit' と入力してください")
-    print()
+        console.print("[warning]⚡ --no-permissions モード: ツール実行の許可確認をスキップ[/]")
+    console.print("[muted]終了するには 'exit' または 'quit' と入力してください[/]")
+    console.print()
 
+    registry = ToolRegistry(ALL_TOOLS)
     messages: list[dict] = []
 
     while True:
@@ -107,7 +196,7 @@ def run_repl(*, skip_permission: bool = False) -> None:
                 response = litellm.completion(
                     model="gpt-5.2",
                     messages=messages,
-                    tools=TOOLS,
+                    tools=registry.get_schemas(),
                 )
 
                 choice = response.choices[0]
@@ -124,7 +213,12 @@ def run_repl(*, skip_permission: bool = False) -> None:
                         func_args = json.loads(tool_call.function.arguments)
 
                         result = execute_tool(
-                            func_name, func_args, i, total, skip_permission=skip_permission
+                            registry,
+                            func_name,
+                            func_args,
+                            i,
+                            total,
+                            skip_permission=skip_permission,
                         )
 
                         # ツール結果を追加
@@ -140,17 +234,25 @@ def run_repl(*, skip_permission: bool = False) -> None:
                 else:
                     # ツール呼び出しがなければ終了
                     if assistant_message.content:
-                        print(f"\n{assistant_message.content}\n")
+                        console.print()
+                        console.print(Panel(
+                            assistant_message.content,
+                            title="🤖 Assistant",
+                            title_align="left",
+                            border_style="blue",
+                            padding=(0, 1),
+                        ))
+                        console.print()
                     break
 
         except KeyboardInterrupt:
-            print("\nGoodbye!")
+            console.print("\n[muted]Goodbye![/]")
             break
         except EOFError:
-            print("\nGoodbye!")
+            console.print("\n[muted]Goodbye![/]")
             break
         except Exception as e:
-            print(f"\nError: {e}\n")
+            console.print(f"\n[error]Error: {e}[/]\n")
 
 
 def main() -> None:

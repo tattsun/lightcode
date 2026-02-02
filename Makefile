@@ -13,7 +13,7 @@ docker-build:
 
 docker-run:
 	@mkdir -p $(SANDBOX_DIR)
-	docker run -it --rm \
+	@docker run -it --rm \
 		-e OPENAI_API_KEY=$(OPENAI_API_KEY) \
 		-v $(SANDBOX_DIR):/sandbox \
 		-w /sandbox \
