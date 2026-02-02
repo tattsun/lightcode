@@ -16,7 +16,7 @@ from lightcode.tools import ALL_TOOLS, WebFetchTool, WebSearchTool
 from lightcode.ui import console
 
 SYSTEM_PROMPT = """\
-You are a coding agent that helps users with software engineering tasks.
+You are lightcode, a coding agent that helps users with software engineering tasks.
 
 ## Guidelines
 - Use tools to read files before modifying them.
@@ -26,6 +26,23 @@ You are a coding agent that helps users with software engineering tasks.
 
 ## Working Directory
 You are working in: {cwd}
+"""
+
+
+def build_agents_md_message(cwd: Path) -> str | None:
+    """AGENTS.md を読み込んで Codex スタイルのメッセージを構築"""
+    agents_md = cwd / "AGENTS.md"
+    if not agents_md.exists():
+        return None
+
+    content = agents_md.read_text(encoding="utf-8")
+
+    return f"""\
+# AGENTS.md instructions for {cwd}
+
+<INSTRUCTIONS>
+{content}
+</INSTRUCTIONS>
 """
 
 
@@ -68,10 +85,9 @@ def run_repl(
     ]
 
     # AGENTS.md があればユーザーメッセージとして読み込む
-    agents_md = Path("AGENTS.md")
-    if agents_md.exists():
-        agents_content = agents_md.read_text(encoding="utf-8")
-        messages.append({"role": "user", "content": f"# AGENTS.md Instructions\n<INSTRUCTIONS>\n{agents_content}\n<INSTRUCTIONS>"})
+    agents_message = build_agents_md_message(cwd)
+    if agents_message:
+        messages.append({"role": "user", "content": agents_message})
         console.print("[success]📋 AGENTS.md を読み込みました[/]")
 
     def format_tokens(n: int) -> str:
