@@ -1,7 +1,7 @@
 [project]
 name = "lightcode"
 version = "0.1.0"
-description = "Add your description here"
+description = "A lightweight coding agent CLI."
 authors = [
     { name = "tattsun", email = "dev.tattsun@gmail.com" }
 ]
