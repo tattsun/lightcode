@@ -166,6 +166,30 @@ class ResponsesClient(ApiClient):
     def get_status_text(self) -> str:
         return "[muted]Ready[/]"
 
+    def _serialize_output(self, output: list) -> list[dict]:
+        """Serialize Responses API output for logging."""
+        serialized = []
+        for item in output:
+            item_type = getattr(item, "type", None)
+            if item_type == "reasoning":
+                summary = getattr(item, "summary", None)
+                summary_texts = []
+                if summary:
+                    summary_texts = [s.text for s in summary if hasattr(s, "text")]
+                serialized.append({"type": "reasoning", "summary": summary_texts})
+            elif item_type == "function_call":
+                serialized.append({
+                    "type": "function_call",
+                    "name": getattr(item, "name", ""),
+                    "arguments": getattr(item, "arguments", ""),
+                    "call_id": getattr(item, "call_id", ""),
+                })
+            elif item_type == "message":
+                content = getattr(item, "content", [])
+                texts = [c.text for c in content if hasattr(c, "text")]
+                serialized.append({"type": "message", "content": texts})
+        return serialized
+
     def call(self, user_input: str | list) -> ApiCallResult:
         response = litellm.responses(
             model=self.config.model,
@@ -179,7 +203,10 @@ class ResponsesClient(ApiClient):
         self.previous_response_id = response.id
 
         if self.config.log_file:
-            append_log(self.config.log_file, {"response_id": response.id, "output": str(response.output)})
+            append_log(self.config.log_file, {
+                "response_id": response.id,
+                "output": self._serialize_output(response.output),
+            })
 
         result = ApiCallResult()
         self.pending_tool_outputs = []
