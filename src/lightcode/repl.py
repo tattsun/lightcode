@@ -3,6 +3,7 @@
 import argparse
 import json
 import os
+import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -16,6 +17,32 @@ from lightcode.logging import append_log
 from lightcode.registry import ToolRegistry, execute_tool
 from lightcode.tools import ALL_TOOLS, WebFetchTool, WebSearchTool
 from lightcode.ui import console
+
+
+# Regex pattern to detect image content in tool results
+IMAGE_PATTERN = re.compile(r"^\[IMAGE:([^:]+):(.+)\]$")
+
+
+def parse_tool_result(result: str) -> str | dict:
+    """Parse tool result and convert image content to multimodal format.
+
+    Args:
+        result: Raw tool result string
+
+    Returns:
+        Either the original string or a dict with multimodal content
+    """
+    match = IMAGE_PATTERN.match(result)
+    if match:
+        mime_type = match.group(1)
+        base64_data = match.group(2)
+        # Return multimodal content format
+        return {
+            "type": "image",
+            "mime_type": mime_type,
+            "base64_data": base64_data,
+        }
+    return result
 
 
 # -----------------------------------------------------------------------------
@@ -62,8 +89,13 @@ class ApiClient(ABC):
         ...
 
     @abstractmethod
-    def add_tool_result(self, tool_call_id: str, result: str) -> None:
-        """Add a tool result for the next API call."""
+    def add_tool_result(self, tool_call_id: str, result: str | dict) -> None:
+        """Add a tool result for the next API call.
+
+        Args:
+            tool_call_id: The ID of the tool call
+            result: Either a string result or a dict with multimodal content
+        """
         ...
 
     @abstractmethod
@@ -136,12 +168,29 @@ class CompletionClient(ApiClient):
 
         return result
 
-    def add_tool_result(self, tool_call_id: str, result: str) -> None:
-        tool_message = {
-            "role": "tool",
-            "tool_call_id": tool_call_id,
-            "content": result,
-        }
+    def add_tool_result(self, tool_call_id: str, result: str | dict) -> None:
+        # Handle multimodal content (images)
+        if isinstance(result, dict) and result.get("type") == "image":
+            mime_type = result["mime_type"]
+            base64_data = result["base64_data"]
+            tool_message = {
+                "role": "tool",
+                "tool_call_id": tool_call_id,
+                "content": [
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:{mime_type};base64,{base64_data}",
+                        },
+                    },
+                ],
+            }
+        else:
+            tool_message = {
+                "role": "tool",
+                "tool_call_id": tool_call_id,
+                "content": result,
+            }
         self.messages.append(tool_message)
         if self.config.log_file:
             append_log(self.config.log_file, tool_message)
@@ -247,12 +296,28 @@ class ResponsesClient(ApiClient):
 
         return result
 
-    def add_tool_result(self, tool_call_id: str, result: str) -> None:
-        self.pending_tool_outputs.append({
-            "type": "function_call_output",
-            "call_id": tool_call_id,
-            "output": result,
-        })
+    def add_tool_result(self, tool_call_id: str, result: str | dict) -> None:
+        # Handle multimodal content (images)
+        if isinstance(result, dict) and result.get("type") == "image":
+            mime_type = result["mime_type"]
+            base64_data = result["base64_data"]
+            # For Responses API, use input_image type
+            self.pending_tool_outputs.append({
+                "type": "function_call_output",
+                "call_id": tool_call_id,
+                "output": [
+                    {
+                        "type": "input_image",
+                        "image_url": f"data:{mime_type};base64,{base64_data}",
+                    },
+                ],
+            })
+        else:
+            self.pending_tool_outputs.append({
+                "type": "function_call_output",
+                "call_id": tool_call_id,
+                "output": result,
+            })
 
     def get_pending_tool_outputs(self) -> list[dict] | None:
         if self.pending_tool_outputs:
@@ -345,7 +410,9 @@ def run_repl_loop(client: ApiClient, config: ReplConfig) -> None:
                             total,
                             skip_permission=config.skip_permission,
                         )
-                        client.add_tool_result(tool_call["id"], tool_result)
+                        # Parse tool result for multimodal content (images)
+                        parsed_result = parse_tool_result(tool_result)
+                        client.add_tool_result(tool_call["id"], parsed_result)
 
                     # Check if we need to continue with tool outputs (Responses API)
                     pending_outputs = client.get_pending_tool_outputs()

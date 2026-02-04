@@ -45,3 +45,31 @@ make docker-run
 | `--no-permissions` | Skip permission prompts for tool execution |
 | `--web-search` | Enable web search tools |
 | `--log-file <path>` | Save session log to JSONL file |
+
+## Available Tools
+
+### File Operations
+- `read_file`, `write_file`, `edit_file`, `delete_file`, `move_file`, `copy_file`
+- `list_files`, `find_files`, `grep`, `file_info`
+
+### Media
+- `read_image` - Read images for LLM visual recognition (PNG, JPEG, GIF, WebP)
+
+### PowerPoint (shape-based layout control)
+- `pptx_create` - Create presentations with full shape control
+- `pptx_read` - Read slide content with position/size info
+- `pptx_add_slide` - Add slides with shape-based layout
+- `pptx_modify_slide` - Edit slides, add/remove shapes
+- `pptx_export_image` - Export slides as PNG images
+
+### System
+- `run_command` - Execute shell commands
+
+## System Requirements
+
+For `pptx_export_image`:
+```bash
+# macOS
+brew install --cask libreoffice
+brew install poppler
+```

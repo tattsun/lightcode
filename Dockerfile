@@ -2,10 +2,14 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Install rye
-RUN apt-get update && apt-get install -y curl git && \
-    curl -sSf https://rye.astral.sh/get | RYE_INSTALL_OPTION="--yes" bash && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
+# Install system dependencies (rye, libreoffice, poppler)
+RUN apt-get update && apt-get install -y \
+    curl \
+    git \
+    libreoffice \
+    poppler-utils \
+    && curl -sSf https://rye.astral.sh/get | RYE_INSTALL_OPTION="--yes" bash \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 ENV PATH="/root/.rye/shims:/app/.venv/bin:${PATH}"
 ENV VIRTUAL_ENV="/app/.venv"

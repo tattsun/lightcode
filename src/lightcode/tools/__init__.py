@@ -10,10 +10,18 @@ from lightcode.tools.grep import GrepTool
 from lightcode.tools.list_files import ListFilesTool
 from lightcode.tools.move_file import MoveFileTool
 from lightcode.tools.read_file import ReadFileTool
+from lightcode.tools.read_image import ReadImageTool
 from lightcode.tools.run_command import RunCommandTool
 from lightcode.tools.web_fetch import WebFetchTool
 from lightcode.tools.web_search import WebSearchTool
 from lightcode.tools.write_file import WriteFileTool
+from lightcode.tools.pptx import (
+    PptxCreateTool,
+    PptxReadTool,
+    PptxAddSlideTool,
+    PptxModifySlideTool,
+    PptxExportImageTool,
+)
 
 # Available tools
 ALL_TOOLS: list[Tool] = [
@@ -31,6 +39,14 @@ ALL_TOOLS: list[Tool] = [
     MoveFileTool(),
     CopyFileTool(),
     FileInfoTool(),
+    # Media tools
+    ReadImageTool(),
+    # PowerPoint tools
+    PptxCreateTool(),
+    PptxReadTool(),
+    PptxAddSlideTool(),
+    PptxModifySlideTool(),
+    PptxExportImageTool(),
 ]
 
 __all__ = [
@@ -44,9 +60,15 @@ __all__ = [
     "ListFilesTool",
     "MoveFileTool",
     "ReadFileTool",
+    "ReadImageTool",
     "RunCommandTool",
     "WebFetchTool",
     "WebSearchTool",
     "WriteFileTool",
+    "PptxCreateTool",
+    "PptxReadTool",
+    "PptxAddSlideTool",
+    "PptxModifySlideTool",
+    "PptxExportImageTool",
     "ALL_TOOLS",
 ]
