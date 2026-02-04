@@ -3,6 +3,7 @@
 import os
 import json
 from pptx import Presentation
+from pptx.enum.dml import MSO_THEME_COLOR_INDEX
 
 from lightcode.tools.base import Tool
 from pptx.util import Pt, Inches
@@ -21,7 +22,12 @@ class PptxModifySlideTool(Tool):
     def description(self) -> str:
         return """Modify an existing slide in a PowerPoint (.pptx) file. USE THIS TOOL instead of writing Python code to edit PowerPoint files.
 
-IMPORTANT: After modifying a slide, ALWAYS use pptx_export_image + read_image to visually verify the changes look correct.
+IMPORTANT: After modifying a slide, ALWAYS use pptx_export_image + read_image to visually verify:
+1. Text is NOT overflowing/clipped outside shape boundaries
+2. Layout and alignment look correct
+3. All changes were applied as expected
+If text overflows, reduce font_size (can be changed without modifying text content) or shorten the text using rich_text/paragraphs to preserve existing styles.
+If the problem persists after a fix, keep iterating until fully resolved - do not move on while issues remain.
 
 Actions:
 - Update existing shapes by ID (change text, font_size, colors) via update_shapes
@@ -215,7 +221,7 @@ Coordinates in inches. Use pptx_read to get actual slide dimensions."""
                                     try:
                                         tc = first_run.font.color.theme_color
                                         # NOT_THEME_COLOR cannot be serialized to XML
-                                        if tc is not None and tc.real >= 0:
+                                        if tc is not None and tc != MSO_THEME_COLOR_INDEX.NOT_THEME_COLOR:
                                             saved_font_color_theme = tc
                                             saved_font_color_brightness = first_run.font.color.brightness
                                     except (AttributeError, TypeError):
@@ -234,7 +240,7 @@ Coordinates in inches. Use pptx_read to get actual slide dimensions."""
                                     try:
                                         tc = first_para.font.color.theme_color
                                         # NOT_THEME_COLOR cannot be serialized to XML
-                                        if tc is not None and tc.real >= 0:
+                                        if tc is not None and tc != MSO_THEME_COLOR_INDEX.NOT_THEME_COLOR:
                                             saved_font_color_theme = tc
                                             saved_font_color_brightness = first_para.font.color.brightness
                                     except (AttributeError, TypeError):

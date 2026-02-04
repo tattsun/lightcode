@@ -46,7 +46,12 @@ class PptxExportImageTool(Tool):
     @property
     def description(self) -> str:
         return (
-            "Export PowerPoint slides as PNG images. "
+            "Export PowerPoint slides as PNG images for visual verification. "
+            "When checking exported images, verify: "
+            "1. No text overflow/clipping outside shape boundaries "
+            "2. Consistent font sizes across shapes "
+            "3. Proper alignment and layout. "
+            "If issues are found, fix them and re-export until resolved. "
             "Output files are saved to /tmp by default. "
             "Requires LibreOffice and Poppler to be installed. "
             "On macOS: brew install libreoffice poppler"
