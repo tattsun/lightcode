@@ -213,8 +213,11 @@ Coordinates in inches. Use pptx_read to get actual slide dimensions."""
                                     except (AttributeError, TypeError):
                                         pass
                                     try:
-                                        saved_font_color_theme = first_run.font.color.theme_color
-                                        saved_font_color_brightness = first_run.font.color.brightness
+                                        tc = first_run.font.color.theme_color
+                                        # NOT_THEME_COLOR cannot be serialized to XML
+                                        if tc is not None and tc.real >= 0:
+                                            saved_font_color_theme = tc
+                                            saved_font_color_brightness = first_run.font.color.brightness
                                     except (AttributeError, TypeError):
                                         pass
                             else:
@@ -229,8 +232,11 @@ Coordinates in inches. Use pptx_read to get actual slide dimensions."""
                                     except (AttributeError, TypeError):
                                         pass
                                     try:
-                                        saved_font_color_theme = first_para.font.color.theme_color
-                                        saved_font_color_brightness = first_para.font.color.brightness
+                                        tc = first_para.font.color.theme_color
+                                        # NOT_THEME_COLOR cannot be serialized to XML
+                                        if tc is not None and tc.real >= 0:
+                                            saved_font_color_theme = tc
+                                            saved_font_color_brightness = first_para.font.color.brightness
                                     except (AttributeError, TypeError):
                                         pass
 
