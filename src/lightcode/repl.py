@@ -448,28 +448,30 @@ def run_repl_loop(client: ApiClient, config: ReplConfig) -> None:
     """Run the unified REPL loop with any API client."""
     interrupt_handler = InterruptHandler()
 
-    # Start monitoring for Ctrl-C and Esc for the entire REPL session
-    with interrupt_handler.monitoring():
-        while True:
-            try:
-                # Reset interrupt state at the start of each turn
-                interrupt_handler.reset()
+    while True:
+        try:
+            # Reset interrupt state at the start of each turn
+            interrupt_handler.reset()
 
-                console.print(client.get_status_text())
+            console.print(client.get_status_text())
 
-                user_input = pt_prompt("> ").strip()
+            # Don't monitor during prompt - EscKeyMonitor conflicts with prompt_toolkit
+            user_input = pt_prompt("> ").strip()
 
-                if not user_input:
-                    continue
+            if not user_input:
+                continue
 
-                if user_input.lower() in ("exit", "quit"):
-                    print("Goodbye!")
-                    break
+            if user_input.lower() in ("exit", "quit"):
+                print("Goodbye!")
+                break
 
-                client.log_user_input(user_input)
-                current_input: str | list = user_input
-                interrupted = False
+            client.log_user_input(user_input)
+            current_input: str | list = user_input
+            interrupted = False
 
+            # Start monitoring only during API calls and tool execution
+            # (not during pt_prompt which conflicts with EscKeyMonitor)
+            with interrupt_handler.monitoring():
                 while True:
                     try:
                         with console.status("[bold blue]Thinking...", spinner="dots"):
@@ -543,19 +545,19 @@ def run_repl_loop(client: ApiClient, config: ReplConfig) -> None:
                         console.print()
                     break
 
-                # If interrupted, reset context and continue to next user input
-                if interrupted:
-                    client.reset_context()
-                    continue
+            # If interrupted, reset context and continue to next user input
+            if interrupted:
+                client.reset_context()
+                continue
 
-            except KeyboardInterrupt:
-                console.print("\n[muted]Goodbye![/]")
-                break
-            except EOFError:
-                console.print("\n[muted]Goodbye![/]")
-                break
-            except Exception as e:
-                console.print(f"\n[error]Error: {e}[/]\n")
+        except KeyboardInterrupt:
+            console.print("\n[muted]Goodbye![/]")
+            break
+        except EOFError:
+            console.print("\n[muted]Goodbye![/]")
+            break
+        except Exception as e:
+            console.print(f"\n[error]Error: {e}[/]\n")
 
 
 def run_repl(

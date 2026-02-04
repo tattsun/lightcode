@@ -2,6 +2,8 @@ CLAUDE.local.md
 .envrc
 sandbox
 logs
+*.pptx
+AGENTS.md
 
 # python generated files
 __pycache__/
@@ -21,7 +23,8 @@ wheels/
 __MACOSX/
 .AppleDouble
 .LSOverride
-Icon[]
+Icon[
+]
 
 # Thumbnails
 ._*
