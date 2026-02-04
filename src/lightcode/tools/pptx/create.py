@@ -5,7 +5,7 @@ import json
 from pptx import Presentation
 
 from lightcode.tools.base import Tool
-from lightcode.tools.pptx._common import get_layout, set_slide_background, add_shape
+from lightcode.tools.pptx._common import get_layout, set_slide_background, add_shape, populate_placeholder
 
 
 class PptxCreateTool(Tool):
@@ -19,10 +19,11 @@ class PptxCreateTool(Tool):
     def description(self) -> str:
         return """Create a new PowerPoint (.pptx) file with full shape control. USE THIS TOOL instead of writing Python code to create PowerPoint files.
 
-Slide size: 10 x 7.5 inches (widescreen)
+Slide size: 10 x 7.5 inches (template default)
 
 Each slide is defined by shapes array for complete layout control:
 {
+  "layout": "title_content",
   "background_color": "#FFFFFF",
   "shapes": [
     {"type": "textbox", "left": 0.5, "top": 0.3, "width": 9, "height": 1,
@@ -36,6 +37,13 @@ Each slide is defined by shapes array for complete layout control:
 }
 
 Shape types: textbox, rectangle, rounded_rectangle, oval, arrow_right, arrow_left, arrow_up, arrow_down, diamond, pentagon, hexagon, star, callout
+
+Layout:
+- layout: Layout name or index (optional). Examples: "title", "title_content", "blank", "Title Slide", 0
+
+Placeholders:
+- placeholders: Array of {idx, text or rich_text, font_size, font_color, bold, italic, underline, alignment, font_name}
+- idx is the placeholder index in the selected layout (0=title, 1=body, etc.)
 
 Shape properties:
 - type: Shape type (required)
@@ -68,7 +76,7 @@ Rich text example:
             "slides": {
                 "type": "array",
                 "items": {"type": "object"},
-                "description": "Array of slide objects. Each slide has: shapes (array), background_color (optional), notes (optional)",
+                "description": "Array of slide objects. Each slide has: shapes (array), layout (optional), placeholders (optional), background_color (optional), notes (optional)",
                 "required": True,
             },
             "template": {
@@ -107,9 +115,6 @@ Rich text example:
                 except json.JSONDecodeError as e:
                     return f"Error: Invalid JSON in slides parameter: {e}"
 
-            # Get blank layout
-            blank_layout = get_layout(prs, "blank")
-
             # Add slides
             for slide_data in slides:
                 if isinstance(slide_data, str):
@@ -118,8 +123,9 @@ Rich text example:
                     except json.JSONDecodeError:
                         continue
 
-                # Create blank slide
-                slide = prs.slides.add_slide(blank_layout)
+                # Create slide with layout
+                layout_name = slide_data.get("layout", "blank")
+                slide = prs.slides.add_slide(get_layout(prs, layout_name))
 
                 # Set background color
                 bg_color = slide_data.get("background_color")
@@ -160,6 +166,33 @@ Rich text example:
                         italic=shape_data.get("italic"),
                         underline=shape_data.get("underline"),
                         font_name=shape_data.get("font_name"),
+                    )
+
+                # Populate placeholders (optional)
+                placeholders = slide_data.get("placeholders", [])
+                for ph in placeholders:
+                    if isinstance(ph, str):
+                        try:
+                            ph = json.loads(ph)
+                        except json.JSONDecodeError:
+                            continue
+                    idx = ph.get("idx")
+                    if idx is None:
+                        continue
+                    rich_text = ph.get("rich_text")
+                    text = ph.get("text", "")
+                    populate_placeholder(
+                        slide,
+                        placeholder_idx=int(idx),
+                        content=text,
+                        font_size=ph.get("font_size"),
+                        font_color=ph.get("font_color"),
+                        bold=ph.get("bold"),
+                        alignment=ph.get("alignment"),
+                        font_name=ph.get("font_name"),
+                        rich_text=rich_text,
+                        italic=ph.get("italic"),
+                        underline=ph.get("underline"),
                     )
 
                 # Set speaker notes

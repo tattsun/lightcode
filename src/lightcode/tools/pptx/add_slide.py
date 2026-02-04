@@ -5,7 +5,7 @@ import json
 from pptx import Presentation
 
 from lightcode.tools.base import Tool
-from lightcode.tools.pptx._common import get_layout, set_slide_background, add_shape
+from lightcode.tools.pptx._common import get_layout, set_slide_background, add_shape, populate_placeholder
 
 
 class PptxAddSlideTool(Tool):
@@ -19,10 +19,11 @@ class PptxAddSlideTool(Tool):
     def description(self) -> str:
         return """Add a new slide to an existing PowerPoint (.pptx) file. USE THIS TOOL instead of writing Python code to add slides.
 
-Slide size: 10 x 7.5 inches (widescreen)
+Slide size: 10 x 7.5 inches (template default)
 
 Define the slide using shapes array:
 {
+  "layout": "title_content",
   "shapes": [
     {"type": "textbox", "left": 0.5, "top": 0.3, "width": 9, "height": 1,
      "text": "Title", "font_size": 40, "font_color": "#1F4E79", "bold": true},
@@ -32,6 +33,13 @@ Define the slide using shapes array:
 }
 
 Shape types: textbox, rectangle, rounded_rectangle, oval, arrow_right, arrow_left, etc.
+
+Layout:
+- layout: Layout name or index (optional). Examples: "title", "title_content", "blank", "Title Slide", 0
+
+Placeholders:
+- placeholders: Array of {idx, text or rich_text, font_size, font_color, bold, italic, underline, alignment, font_name}
+- idx is the placeholder index in the selected layout (0=title, 1=body, etc.)
 
 Shape properties: type, left, top, width, height, text, rich_text, font_size, font_color, bold, italic, underline, font_name, alignment, fill_color, line_color, line_width
 
@@ -53,11 +61,19 @@ The slide is added at the specified position or at the end if position is not sp
                 "type": "array",
                 "items": {"type": "object"},
                 "description": "Array of shape objects to add to the slide",
-                "required": True,
             },
             "background_color": {
                 "type": "string",
                 "description": "Slide background color as hex (e.g., '#FFFFFF')",
+            },
+            "layout": {
+                "type": "string",
+                "description": "Slide layout name or index (e.g., 'title', 'title_content', 'blank', 'Title Slide', 0)",
+            },
+            "placeholders": {
+                "type": "array",
+                "items": {"type": "object"},
+                "description": "Placeholder values. Each: {idx, text or rich_text, font_size, font_color, bold, italic, underline, alignment, font_name}",
             },
             "position": {
                 "type": "integer",
@@ -73,13 +89,15 @@ The slide is added at the specified position or at the end if position is not sp
         path = kwargs.get("path")
         shapes = kwargs.get("shapes", [])
         background_color = kwargs.get("background_color")
+        layout_name = kwargs.get("layout", "blank")
+        placeholders = kwargs.get("placeholders", [])
         position = kwargs.get("position")
         notes = kwargs.get("notes")
 
         if not path:
             return "Error: path is required"
-        if not shapes:
-            return "Error: shapes is required"
+        if not shapes and not placeholders:
+            return "Error: shapes or placeholders is required"
 
         if not os.path.exists(path):
             return f"Error: File not found: {path}"
@@ -94,11 +112,8 @@ The slide is added at the specified position or at the end if position is not sp
                 except json.JSONDecodeError as e:
                     return f"Error: Invalid JSON in shapes: {e}"
 
-            # Get blank layout
-            blank_layout = get_layout(prs, "blank")
-
-            # Add slide
-            slide = prs.slides.add_slide(blank_layout)
+            # Add slide with layout
+            slide = prs.slides.add_slide(get_layout(prs, layout_name))
 
             # Set background
             if background_color:
@@ -137,6 +152,32 @@ The slide is added at the specified position or at the end if position is not sp
                     italic=shape_data.get("italic"),
                     underline=shape_data.get("underline"),
                     font_name=shape_data.get("font_name"),
+                )
+
+            # Populate placeholders (optional)
+            for ph in placeholders:
+                if isinstance(ph, str):
+                    try:
+                        ph = json.loads(ph)
+                    except json.JSONDecodeError:
+                        continue
+                idx = ph.get("idx")
+                if idx is None:
+                    continue
+                rich_text = ph.get("rich_text")
+                text = ph.get("text", "")
+                populate_placeholder(
+                    slide,
+                    placeholder_idx=int(idx),
+                    content=text,
+                    font_size=ph.get("font_size"),
+                    font_color=ph.get("font_color"),
+                    bold=ph.get("bold"),
+                    alignment=ph.get("alignment"),
+                    font_name=ph.get("font_name"),
+                    rich_text=rich_text,
+                    italic=ph.get("italic"),
+                    underline=ph.get("underline"),
                 )
 
             # Set speaker notes

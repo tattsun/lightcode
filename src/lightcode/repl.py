@@ -4,19 +4,24 @@ import argparse
 import json
 import os
 import re
+import threading
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable, TypeVar
 
 import litellm
 from prompt_toolkit import prompt as pt_prompt
 from rich.markdown import Markdown
 from rich.panel import Panel
 
+from lightcode.interrupt import InterruptHandler, InterruptRequested
 from lightcode.logging import append_log
 from lightcode.registry import ToolRegistry, execute_tool
 from lightcode.tools import ALL_TOOLS, WebFetchTool, WebSearchTool
 from lightcode.ui import console
+
+T = TypeVar("T")
 
 
 # Regex pattern to detect image content in tool results
@@ -106,6 +111,11 @@ class ApiClient(ABC):
     @abstractmethod
     def log_user_input(self, user_input: str) -> None:
         """Log the user input."""
+        ...
+
+    @abstractmethod
+    def reset_context(self) -> None:
+        """Reset conversation context after interrupt."""
         ...
 
 
@@ -201,6 +211,15 @@ class CompletionClient(ApiClient):
     def log_user_input(self, user_input: str) -> None:
         # For Completion API, logging is done in call() method
         pass
+
+    def reset_context(self) -> None:
+        # For Completion API, remove the last assistant message with tool_calls
+        # and any tool messages that follow
+        while self.messages and self.messages[-1].get("role") == "tool":
+            self.messages.pop()
+        if self.messages and self.messages[-1].get("role") == "assistant":
+            if self.messages[-1].get("tool_calls"):
+                self.messages.pop()
 
 
 class ResponsesClient(ApiClient):
@@ -328,6 +347,67 @@ class ResponsesClient(ApiClient):
         if self.config.log_file:
             append_log(self.config.log_file, {"role": "user", "content": user_input})
 
+    def reset_context(self) -> None:
+        # Clear pending tool outputs and reset context
+        # We must reset previous_response_id because the API expects tool outputs
+        # for any function calls in the previous response
+        self.pending_tool_outputs = []
+        self.previous_response_id = None
+
+
+# -----------------------------------------------------------------------------
+# Interrupt Support
+# -----------------------------------------------------------------------------
+
+
+def run_with_interrupt(
+    func: Callable[[], T],
+    handler: InterruptHandler,
+    check_interval: float = 0.1,
+) -> T:
+    """Run function with interrupt support.
+
+    Runs the given function in a background thread while monitoring for
+    interrupts. The caller should have already called handler.monitor_keys().
+
+    Args:
+        func: The function to run
+        handler: Interrupt handler for coordination
+        check_interval: How often to check for interrupts (seconds)
+
+    Returns:
+        The result of the function
+
+    Raises:
+        InterruptRequested: If user requests interruption
+        Exception: Any exception raised by the function
+    """
+    result_container: dict = {"result": None, "error": None}
+    done = threading.Event()
+
+    def worker():
+        try:
+            result_container["result"] = func()
+        except Exception as e:
+            result_container["error"] = e
+        finally:
+            done.set()
+
+    thread = threading.Thread(target=worker, daemon=True)
+    thread.start()
+
+    # Wait for completion while checking for interrupts
+    while not done.is_set():
+        if handler.is_interrupted():
+            raise InterruptRequested()
+        done.wait(timeout=check_interval)
+
+    if result_container["error"]:
+        raise result_container["error"]
+
+    return result_container["result"]
+
+
 SYSTEM_PROMPT = """\
 You are lightcode, a coding agent that helps users with software engineering tasks.
 
@@ -366,82 +446,116 @@ def build_agents_md_message(cwd: Path) -> str | None:
 
 def run_repl_loop(client: ApiClient, config: ReplConfig) -> None:
     """Run the unified REPL loop with any API client."""
-    while True:
-        try:
-            console.print(client.get_status_text())
+    interrupt_handler = InterruptHandler()
 
-            user_input = pt_prompt("> ").strip()
+    # Start monitoring for Ctrl-C and Esc for the entire REPL session
+    with interrupt_handler.monitoring():
+        while True:
+            try:
+                # Reset interrupt state at the start of each turn
+                interrupt_handler.reset()
 
-            if not user_input:
-                continue
+                console.print(client.get_status_text())
 
-            if user_input.lower() in ("exit", "quit"):
-                print("Goodbye!")
-                break
+                user_input = pt_prompt("> ").strip()
 
-            client.log_user_input(user_input)
-            current_input: str | list = user_input
-
-            while True:
-                with console.status("[bold blue]Thinking...", spinner="dots"):
-                    result = client.call(current_input)
-
-                # Display reasoning summary (Responses API only)
-                if result.reasoning_summary:
-                    console.print()
-                    console.print(Panel(
-                        Markdown(result.reasoning_summary),
-                        title="🧠 Thinking",
-                        title_align="left",
-                        border_style="dim",
-                        style="dim",
-                        padding=(0, 1),
-                    ))
-
-                # Handle tool calls
-                if result.tool_calls:
-                    total = len(result.tool_calls)
-                    for i, tool_call in enumerate(result.tool_calls, start=1):
-                        tool_result = execute_tool(
-                            config.registry,
-                            tool_call["name"],
-                            tool_call["arguments"],
-                            i,
-                            total,
-                            skip_permission=config.skip_permission,
-                        )
-                        # Parse tool result for multimodal content (images)
-                        parsed_result = parse_tool_result(tool_result)
-                        client.add_tool_result(tool_call["id"], parsed_result)
-
-                    # Check if we need to continue with tool outputs (Responses API)
-                    pending_outputs = client.get_pending_tool_outputs()
-                    if pending_outputs is not None:
-                        current_input = pending_outputs
-                    # For Completion API, just continue the loop
+                if not user_input:
                     continue
 
-                # Display assistant response
-                if result.assistant_content:
-                    console.print()
-                    console.print(Panel(
-                        Markdown(result.assistant_content),
-                        title="🤖 Assistant",
-                        title_align="left",
-                        border_style="blue",
-                        padding=(0, 1),
-                    ))
-                    console.print()
-                break
+                if user_input.lower() in ("exit", "quit"):
+                    print("Goodbye!")
+                    break
 
-        except KeyboardInterrupt:
-            console.print("\n[muted]Goodbye![/]")
-            break
-        except EOFError:
-            console.print("\n[muted]Goodbye![/]")
-            break
-        except Exception as e:
-            console.print(f"\n[error]Error: {e}[/]\n")
+                client.log_user_input(user_input)
+                current_input: str | list = user_input
+                interrupted = False
+
+                while True:
+                    try:
+                        with console.status("[bold blue]Thinking...", spinner="dots"):
+                            result = run_with_interrupt(
+                                lambda ci=current_input: client.call(ci),
+                                interrupt_handler,
+                            )
+                    except InterruptRequested:
+                        console.print("\n[warning][Interrupted][/]")
+                        interrupted = True
+                        break
+
+                    # Display reasoning summary (Responses API only)
+                    if result.reasoning_summary:
+                        console.print()
+                        console.print(Panel(
+                            Markdown(result.reasoning_summary),
+                            title="🧠 Thinking",
+                            title_align="left",
+                            border_style="dim",
+                            style="dim",
+                            padding=(0, 1),
+                        ))
+
+                    # Handle tool calls
+                    if result.tool_calls:
+                        total = len(result.tool_calls)
+                        tool_interrupted = False
+
+                        for i, tool_call in enumerate(result.tool_calls, start=1):
+                            try:
+                                tool_result = execute_tool(
+                                    config.registry,
+                                    tool_call["name"],
+                                    tool_call["arguments"],
+                                    i,
+                                    total,
+                                    skip_permission=config.skip_permission,
+                                    interrupt_handler=interrupt_handler,
+                                )
+                            except InterruptRequested:
+                                console.print("\n[warning][Interrupted][/]")
+                                tool_interrupted = True
+                                break
+
+                            # Parse tool result for multimodal content (images)
+                            parsed_result = parse_tool_result(tool_result)
+                            client.add_tool_result(tool_call["id"], parsed_result)
+
+                        if tool_interrupted:
+                            interrupted = True
+                            break
+
+                        # Check if we need to continue with tool outputs (Responses API)
+                        pending_outputs = client.get_pending_tool_outputs()
+                        if pending_outputs is not None:
+                            current_input = pending_outputs
+                        # For Completion API, just continue the loop
+                        continue
+
+                    # Display assistant response
+                    if result.assistant_content:
+                        console.print()
+                        console.print(Panel(
+                            Markdown(result.assistant_content),
+                            title="🤖 Assistant",
+                            title_align="left",
+                            border_style="blue",
+                            padding=(0, 1),
+                        ))
+                        console.print()
+                    break
+
+                # If interrupted, reset context and continue to next user input
+                if interrupted:
+                    client.reset_context()
+                    continue
+
+            except KeyboardInterrupt:
+                console.print("\n[muted]Goodbye![/]")
+                break
+            except EOFError:
+                console.print("\n[muted]Goodbye![/]")
+                break
+            except Exception as e:
+                console.print(f"\n[error]Error: {e}[/]\n")
 
 
 def run_repl(

@@ -25,6 +25,8 @@ Returns slide information including:
 - Placeholder information
 - Speaker notes (optional)
 - Rich text runs with styling info (optional, use include_rich_text=true)
+- Paragraph structure with levels and runs (optional, use include_rich_text=true)
+- Available layout names and indices (optional, use include_layouts=true)
 
 Use pptx_modify_slide to edit shapes based on the information returned by this tool.
 When using rich_text in pptx_modify_slide, first use include_rich_text=true here to see the text structure."""
@@ -49,6 +51,10 @@ When using rich_text in pptx_modify_slide, first use include_rich_text=true here
                 "type": "boolean",
                 "description": "Include rich text info (bold/italic/underline per run) for styled text (default: false)",
             },
+            "include_layouts": {
+                "type": "boolean",
+                "description": "Include available layout names and indices (default: false)",
+            },
         }
 
     def execute(self, **kwargs) -> str:
@@ -56,6 +62,7 @@ When using rich_text in pptx_modify_slide, first use include_rich_text=true here
         slide_number = kwargs.get("slide_number")
         include_notes = kwargs.get("include_notes", False)
         include_rich_text = kwargs.get("include_rich_text", False)
+        include_layouts = kwargs.get("include_layouts", False)
 
         if not path:
             return "Error: path is required"
@@ -80,6 +87,12 @@ When using rich_text in pptx_modify_slide, first use include_rich_text=true here
                 f"Total slides: {total_slides}",
                 "",
             ]
+            if include_layouts:
+                output_lines.append("Layouts:")
+                for i, layout in enumerate(prs.slide_layouts):
+                    name = layout.name or "(no name)"
+                    output_lines.append(f"- {i}: {name}")
+                output_lines.append("")
 
             if slide_number is not None:
                 # Read specific slide
@@ -89,11 +102,41 @@ When using rich_text in pptx_modify_slide, first use include_rich_text=true here
                     return f"Error: slide_number {slide_number} is out of range. File has {total_slides} slide(s). Valid range: 1-{total_slides}."
 
                 slide = prs.slides[slide_number - 1]
-                output_lines.append(format_slide_info(slide, slide_number, include_notes, include_rich_text))
+                layout_name = slide.slide_layout.name or "(no name)"
+                layout_index = None
+                for i, layout in enumerate(prs.slide_layouts):
+                    if layout == slide.slide_layout:
+                        layout_index = i
+                        break
+                output_lines.append(
+                    format_slide_info(
+                        slide,
+                        slide_number,
+                        include_notes,
+                        include_rich_text,
+                        layout_name=layout_name,
+                        layout_index=layout_index,
+                    )
+                )
             else:
                 # Read all slides
                 for idx, slide in enumerate(prs.slides, 1):
-                    output_lines.append(format_slide_info(slide, idx, include_notes, include_rich_text))
+                    layout_name = slide.slide_layout.name or "(no name)"
+                    layout_index = None
+                    for i, layout in enumerate(prs.slide_layouts):
+                        if layout == slide.slide_layout:
+                            layout_index = i
+                            break
+                    output_lines.append(
+                        format_slide_info(
+                            slide,
+                            idx,
+                            include_notes,
+                            include_rich_text,
+                            layout_name=layout_name,
+                            layout_index=layout_index,
+                        )
+                    )
                     output_lines.append("")  # Blank line between slides
 
             return "\n".join(output_lines)

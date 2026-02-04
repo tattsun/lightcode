@@ -183,17 +183,33 @@ def apply_paragraph_style(paragraph, font_size: int = None, font_color: str = No
         paragraph.alignment = ALIGN_MAP[alignment]
 
 
-def get_layout(prs: Presentation, layout_name: str):
+def get_layout(prs: Presentation, layout_name):
     """Get slide layout by name.
 
     Args:
         prs: Presentation object
-        layout_name: Layout name (e.g., 'title', 'title_content', 'blank')
+        layout_name: Layout name or index (e.g., 'title', 'title_content', 'blank', 'Title Slide', 0)
 
     Returns:
         SlideLayout object
     """
-    layout_idx = LAYOUT_MAP.get(layout_name, 1)  # Default to title_content
+    layout_idx = None
+    if isinstance(layout_name, int):
+        layout_idx = layout_name
+    elif isinstance(layout_name, str):
+        if layout_name.isdigit():
+            layout_idx = int(layout_name)
+        else:
+            key = layout_name.strip().lower()
+            layout_idx = LAYOUT_MAP.get(key)
+            if layout_idx is None:
+                # Try matching by layout name in the template (case-insensitive)
+                for i, layout in enumerate(prs.slide_layouts):
+                    if layout.name and layout.name.strip().lower() == key:
+                        layout_idx = i
+                        break
+    if layout_idx is None:
+        layout_idx = 1  # Default to title_content
 
     # Ensure index is within available layouts
     layouts = prs.slide_layouts
@@ -206,7 +222,8 @@ def get_layout(prs: Presentation, layout_name: str):
 def populate_placeholder(slide: Slide, placeholder_idx: int, content,
                          font_size: int = None, font_color: str = None,
                          bold: bool = None, alignment: str = None,
-                         font_name: str = None) -> bool:
+                         font_name: str = None, rich_text: list = None,
+                         italic: bool = None, underline: bool = None) -> bool:
     """Populate a placeholder with content and optional styling.
 
     Args:
@@ -218,6 +235,9 @@ def populate_placeholder(slide: Slide, placeholder_idx: int, content,
         bold: Whether text should be bold
         alignment: Text alignment ('left', 'center', 'right', 'justify')
         font_name: Font family name
+        rich_text: List of text segments with individual styles (single paragraph)
+        italic: Whether text should be italic
+        underline: Whether text should be underlined
 
     Returns:
         True if placeholder was found and populated
@@ -226,7 +246,39 @@ def populate_placeholder(slide: Slide, placeholder_idx: int, content,
         if shape.is_placeholder and shape.placeholder_format.idx == placeholder_idx:
             if hasattr(shape, 'text_frame'):
                 tf = shape.text_frame
-                if isinstance(content, list):
+                if rich_text:
+                    p = tf.paragraphs[0]
+                    for i, segment in enumerate(rich_text):
+                        seg_text = segment.get("text", "")
+                        if i == 0:
+                            p.text = seg_text
+                            if p.runs:
+                                _apply_run_style(
+                                    p.runs[0],
+                                    segment,
+                                    font_size,
+                                    font_color,
+                                    bold,
+                                    italic,
+                                    underline,
+                                    font_name,
+                                )
+                        else:
+                            run = p.add_run()
+                            run.text = seg_text
+                            _apply_run_style(
+                                run,
+                                segment,
+                                font_size,
+                                font_color,
+                                bold,
+                                italic,
+                                underline,
+                                font_name,
+                            )
+                    if alignment and alignment in ALIGN_MAP:
+                        p.alignment = ALIGN_MAP[alignment]
+                elif isinstance(content, list):
                     # First paragraph
                     if content:
                         tf.paragraphs[0].text = content[0]
@@ -245,6 +297,11 @@ def populate_placeholder(slide: Slide, placeholder_idx: int, content,
                     apply_paragraph_style(
                         tf.paragraphs[0], font_size, font_color, bold, alignment, font_name
                     )
+                    if tf.paragraphs[0].runs:
+                        if italic is not None:
+                            tf.paragraphs[0].runs[0].font.italic = italic
+                        if underline is not None:
+                            tf.paragraphs[0].runs[0].font.underline = underline
                 return True
     return False
 
@@ -276,8 +333,11 @@ def extract_shape_info(shape: BaseShape, include_rich_text: bool = False) -> dic
         # Extract rich text information if requested
         if include_rich_text:
             rich_text = []
+            paragraphs = []
             tf = shape.text_frame
             for para in tf.paragraphs:
+                para_info = {"level": para.level}
+                para_runs = []
                 for run in para.runs:
                     run_info = {"text": run.text}
                     # Only include non-default styles
@@ -312,8 +372,16 @@ def extract_shape_info(shape: BaseShape, include_rich_text: bool = False) -> dic
                     if run.hyperlink and run.hyperlink.address:
                         run_info["hyperlink"] = run.hyperlink.address
                     rich_text.append(run_info)
+                    para_runs.append(run_info)
+                if para_runs:
+                    para_info["runs"] = para_runs
+                elif para.text:
+                    para_info["text"] = para.text
+                paragraphs.append(para_info)
             if rich_text:
                 info["rich_text"] = rich_text
+            if paragraphs:
+                info["paragraphs"] = paragraphs
     elif hasattr(shape, 'text'):
         info["text"] = shape.text
 
@@ -589,6 +657,39 @@ def format_shape_info(shape: BaseShape, indent: int = 0, include_rich_text: bool
                     style_str = f"[{','.join(styles)}]" if styles else ""
                     runs_desc.append(f'"{run_text}"{style_str}')
                 lines.append(f"{text_prefix}Runs: {' | '.join(runs_desc)}")
+        if include_rich_text and 'paragraphs' in info:
+            lines.append(f"{text_prefix}Paragraphs:")
+            for p in info['paragraphs']:
+                level = p.get('level', 0)
+                runs = p.get('runs') or []
+                if runs:
+                    runs_desc = []
+                    for r in runs:
+                        run_text = r['text'][:30] + "..." if len(r['text']) > 30 else r['text']
+                        styles = []
+                        if r.get('bold'):
+                            styles.append('B')
+                        if r.get('italic'):
+                            styles.append('I')
+                        if r.get('underline'):
+                            styles.append('U')
+                        if r.get('font_size_pt'):
+                            styles.append(f"{r['font_size_pt']}pt")
+                        if r.get('font_theme_color'):
+                            styles.append(r['font_theme_color'])
+                        elif r.get('font_color'):
+                            styles.append(f"#{r['font_color']}")
+                        if r.get('hyperlink'):
+                            url = r['hyperlink']
+                            if len(url) > 30:
+                                url = url[:27] + "..."
+                            styles.append(f"link:{url}")
+                        style_str = f"[{','.join(styles)}]" if styles else ""
+                        runs_desc.append(f'"{run_text}"{style_str}')
+                    lines.append(f"{text_prefix}  L{level}: {' | '.join(runs_desc)}")
+                else:
+                    text = p.get('text', '').replace('\n', '\\n')
+                    lines.append(f"{text_prefix}  L{level}: \"{text}\"")
 
     # Recursively process group shapes
     if info['type'] == 'GROUP' and hasattr(shape, 'shapes'):
@@ -599,7 +700,8 @@ def format_shape_info(shape: BaseShape, indent: int = 0, include_rich_text: bool
 
 
 def format_slide_info(slide: Slide, slide_number: int, include_notes: bool = False,
-                      include_rich_text: bool = False) -> str:
+                      include_rich_text: bool = False, layout_name: str | None = None,
+                      layout_index: int | None = None) -> str:
     """Format slide information as readable text.
 
     Args:
@@ -612,6 +714,11 @@ def format_slide_info(slide: Slide, slide_number: int, include_notes: bool = Fal
         Formatted string with slide information
     """
     lines = [f"[Slide {slide_number}]"]
+    if layout_name is not None:
+        if layout_index is not None:
+            lines.append(f"Layout: {layout_name} (index {layout_index})")
+        else:
+            lines.append(f"Layout: {layout_name}")
 
     for shape in slide.shapes:
         lines.extend(format_shape_info(shape, include_rich_text=include_rich_text))

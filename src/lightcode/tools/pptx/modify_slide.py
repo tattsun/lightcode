@@ -7,7 +7,7 @@ from pptx import Presentation
 from lightcode.tools.base import Tool
 from pptx.util import Pt, Inches
 
-from lightcode.tools.pptx._common import add_shape, hex_to_rgb
+from lightcode.tools.pptx._common import add_shape, hex_to_rgb, THEME_COLOR_MAP
 
 
 class PptxModifySlideTool(Tool):
@@ -35,6 +35,7 @@ update_shapes examples:
 - Change text: [{"shape_id": 2, "text": "New text"}]
 - Rich text (partial bold/styles): [{"shape_id": 2, "rich_text": [{"text": "Normal "}, {"text": "BOLD", "bold": true}, {"text": " normal"}]}]
 - Rich text with colors: [{"shape_id": 2, "rich_text": [{"text": "Black "}, {"text": "Red", "font_color": "#FF0000"}]}]
+- Multi-paragraph with bullets: [{"shape_id": 2, "paragraphs": [{"level": 0, "runs": [{"text": "Item 1"}]}, {"level": 0, "runs": [{"text": "Item 2"}]}, {"level": 1, "runs": [{"text": "Sub item"}]}]}]
 - Change font size only (no text change): [{"shape_id": 2, "font_size": 24}]
 - Change font: [{"shape_id": 2, "font_name": "Arial"}]
 - Change text and style: [{"shape_id": 2, "text": "New", "font_size": 18, "font_color": "#FF0000", "bold": true}]
@@ -69,7 +70,7 @@ Coordinates in inches. Use pptx_read to get actual slide dimensions."""
             "update_shapes": {
                 "type": "array",
                 "items": {"type": "object"},
-                "description": "Update existing shapes by ID. Each: {shape_id, text, rich_text, font_size, font_name, font_color, bold, italic, underline, fill_color, left, top, width, height}. Use rich_text for partial styling: [{text, bold, italic, underline, font_size, font_name, font_color}, ...]",
+                "description": "Update existing shapes by ID. Each: {shape_id, text, rich_text, paragraphs, font_size, font_name, font_color, bold, italic, underline, fill_color, left, top, width, height}. Use rich_text for partial styling (single paragraph): [{text, bold, italic, underline, font_size, font_name, font_color}, ...]. Use paragraphs for multi-paragraph/bullets: [{level, runs:[{text, bold, italic, underline, font_size, font_name, font_color, font_theme_color}]}]",
             },
             "add_shapes": {
                 "type": "array",
@@ -183,7 +184,7 @@ Coordinates in inches. Use pptx_read to get actual slide dimensions."""
                         continue
 
                     # Update text content (preserving existing styles)
-                    has_text_update = "text" in update_data or "rich_text" in update_data
+                    has_text_update = any(k in update_data for k in ["text", "rich_text", "paragraphs"])
                     if has_text_update and hasattr(shape, "text_frame"):
                         tf = shape.text_frame
 
@@ -233,10 +234,6 @@ Coordinates in inches. Use pptx_read to get actual slide dimensions."""
                                     except (AttributeError, TypeError):
                                         pass
 
-                        # Clear existing text
-                        for para in tf.paragraphs:
-                            para.clear()
-
                         # Helper to apply saved styles to a run
                         def apply_base_styles(run, segment=None):
                             """Apply saved base styles to a run, with optional segment overrides."""
@@ -266,8 +263,12 @@ Coordinates in inches. Use pptx_read to get actual slide dimensions."""
                                 run.font.underline = seg["underline"]
                             elif saved_font_underline is not None:
                                 run.font.underline = saved_font_underline
-                            # Color
-                            if "font_color" in seg:
+                            # Color (theme overrides RGB)
+                            if "font_theme_color" in seg:
+                                theme_enum = THEME_COLOR_MAP.get(str(seg["font_theme_color"]).upper())
+                                if theme_enum:
+                                    run.font.color.theme_color = theme_enum
+                            elif "font_color" in seg:
                                 run.font.color.rgb = hex_to_rgb(seg["font_color"])
                             elif saved_font_color_rgb:
                                 run.font.color.rgb = saved_font_color_rgb
@@ -276,7 +277,51 @@ Coordinates in inches. Use pptx_read to get actual slide dimensions."""
                                 if saved_font_color_brightness is not None:
                                     run.font.color.brightness = saved_font_color_brightness
 
-                        if "rich_text" in update_data:
+                        if "paragraphs" in update_data:
+                            paragraphs = update_data["paragraphs"]
+                            if isinstance(paragraphs, str):
+                                paragraphs = json.loads(paragraphs)
+                            if not isinstance(paragraphs, list):
+                                paragraphs = []
+
+                            existing_paras = list(tf.paragraphs)
+                            for i, p in enumerate(paragraphs):
+                                if isinstance(p, str):
+                                    p = json.loads(p)
+                                if i < len(existing_paras):
+                                    para = existing_paras[i]
+                                else:
+                                    para = tf.add_paragraph()
+                                para.clear()
+                                if "level" in p:
+                                    para.level = int(p["level"])
+
+                                runs = p.get("runs") or []
+                                if runs:
+                                    for j, segment in enumerate(runs):
+                                        if isinstance(segment, str):
+                                            segment = json.loads(segment)
+                                        text = segment.get("text", "")
+                                        if j == 0:
+                                            para.text = text
+                                            if para.runs:
+                                                apply_base_styles(para.runs[0], segment)
+                                        else:
+                                            run = para.add_run()
+                                            run.text = text
+                                            apply_base_styles(run, segment)
+                                else:
+                                    para.text = p.get("text", "")
+                                    if para.runs:
+                                        apply_base_styles(para.runs[0], p)
+                            # Clear any remaining existing paragraphs
+                            for para in existing_paras[len(paragraphs):]:
+                                para.clear()
+                                para.text = ""
+                        elif "rich_text" in update_data:
+                            # Clear existing text
+                            for para in tf.paragraphs:
+                                para.clear()
                             # Rich text: multiple runs with individual styles
                             rich_text = update_data["rich_text"]
                             if isinstance(rich_text, str):
@@ -298,6 +343,9 @@ Coordinates in inches. Use pptx_read to get actual slide dimensions."""
                                     run.text = text
                                     apply_base_styles(run, segment)
                         else:
+                            # Clear existing text
+                            for para in tf.paragraphs:
+                                para.clear()
                             # Simple text update
                             tf.paragraphs[0].text = update_data["text"]
 

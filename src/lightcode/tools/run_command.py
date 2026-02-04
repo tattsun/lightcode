@@ -1,8 +1,17 @@
 """Shell command execution tool."""
 
+from __future__ import annotations
+
+import os
 import subprocess
+import sys
+import time
+from typing import TYPE_CHECKING
 
 from lightcode.tools.base import Tool
+
+if TYPE_CHECKING:
+    from lightcode.interrupt import InterruptHandler
 
 
 class RunCommandTool(Tool):
@@ -31,35 +40,74 @@ class RunCommandTool(Tool):
         }
 
     def execute(self, **kwargs) -> str:
+        from lightcode.interrupt import InterruptRequested
+
         command = kwargs.get("command")
         timeout = kwargs.get("timeout", 60)
+        interrupt_handler: InterruptHandler | None = kwargs.get("_interrupt_handler")
 
         if not command:
             return "Error: command is required"
 
         try:
-            result = subprocess.run(
-                command,
-                shell=True,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-            )
+            # Start subprocess in new session to prevent SIGINT propagation
+            popen_kwargs: dict = {
+                "shell": True,
+                "stdout": subprocess.PIPE,
+                "stderr": subprocess.PIPE,
+                "text": True,
+            }
+            if sys.platform != "win32":
+                popen_kwargs["start_new_session"] = True
+            else:
+                popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+
+            process = subprocess.Popen(command, **popen_kwargs)
+
+            start_time = time.time()
+            poll_interval = 0.1  # 100ms
+
+            while True:
+                # Check for interrupt
+                if interrupt_handler and interrupt_handler.is_interrupted():
+                    process.terminate()
+                    try:
+                        process.wait(timeout=1.0)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait()
+                    raise InterruptRequested()
+
+                # Check for process completion
+                returncode = process.poll()
+                if returncode is not None:
+                    break
+
+                # Check for timeout
+                elapsed = time.time() - start_time
+                if elapsed >= timeout:
+                    process.kill()
+                    process.wait()
+                    return f"Error: Command timed out after {timeout} seconds"
+
+                time.sleep(poll_interval)
+
+            stdout, stderr = process.communicate()
 
             output = ""
-            if result.stdout:
-                output += result.stdout
-            if result.stderr:
+            if stdout:
+                output += stdout
+            if stderr:
                 if output:
                     output += "\n"
-                output += f"[stderr]\n{result.stderr}"
+                output += f"[stderr]\n{stderr}"
 
-            if result.returncode != 0:
-                output += f"\n[exit code: {result.returncode}]"
+            if process.returncode != 0:
+                output += f"\n[exit code: {process.returncode}]"
 
             return output if output else "(no output)"
 
-        except subprocess.TimeoutExpired:
-            return f"Error: Command timed out after {timeout} seconds"
+        except InterruptRequested:
+            raise
         except Exception as e:
             return f"Error: {type(e).__name__}: {e}"

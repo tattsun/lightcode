@@ -1,5 +1,9 @@
 """Tool registration and management."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from rich.panel import Panel
 
 from lightcode.tools import Tool
@@ -10,6 +14,9 @@ from lightcode.ui import (
     render_tool_header,
     request_permission,
 )
+
+if TYPE_CHECKING:
+    from lightcode.interrupt import InterruptHandler
 
 
 class ToolRegistry:
@@ -37,12 +44,27 @@ class ToolRegistry:
             })
         return schemas
 
-    def execute(self, name: str, arguments: dict) -> str:
-        """Execute a tool."""
+    def execute(
+        self,
+        name: str,
+        arguments: dict,
+        *,
+        interrupt_handler: InterruptHandler | None = None,
+    ) -> str:
+        """Execute a tool.
+
+        Args:
+            name: Tool name
+            arguments: Tool arguments
+            interrupt_handler: Optional interrupt handler for cancellation
+
+        Returns:
+            Tool execution result string.
+        """
         tool = self._tools.get(name)
         if tool is None:
             return f"Error: Unknown tool: {name}"
-        return tool.execute(**arguments)
+        return tool.execute(**arguments, _interrupt_handler=interrupt_handler)
 
 
 def execute_tool(
@@ -53,10 +75,39 @@ def execute_tool(
     total: int,
     *,
     skip_permission: bool = False,
+    interrupt_handler: InterruptHandler | None = None,
 ) -> str:
-    """Execute a tool with permission check."""
+    """Execute a tool with permission check.
+
+    Args:
+        registry: Tool registry
+        name: Tool name
+        arguments: Tool arguments
+        index: Current tool index
+        total: Total number of tools
+        skip_permission: Skip permission prompt
+        interrupt_handler: Optional interrupt handler for cancellation
+
+    Returns:
+        Tool execution result string.
+
+    Raises:
+        InterruptRequested: If user requests interruption.
+    """
+    from lightcode.interrupt import InterruptRequested
+
+    # Check for interrupt before permission prompt
+    if interrupt_handler and interrupt_handler.is_interrupted():
+        raise InterruptRequested()
+
     if not skip_permission:
-        if not request_permission(name, arguments, index, total):
+        permission = request_permission(name, arguments, index, total)
+        if permission is None:
+            # User pressed Esc - signal interrupt
+            if interrupt_handler:
+                interrupt_handler.request_interrupt()
+            raise InterruptRequested()
+        if not permission:
             console.print("[muted]Tool execution denied[/]")
             return "Error: Tool execution was denied by user."
     else:
@@ -71,10 +122,16 @@ def execute_tool(
             border_style="cyan",
         ))
 
+    # Check for interrupt before execution
+    if interrupt_handler and interrupt_handler.is_interrupted():
+        raise InterruptRequested()
+
     try:
         with console.status(f"[bold cyan]Executing {name}...", spinner="dots"):
-            result = registry.execute(name, arguments)
+            result = registry.execute(name, arguments, interrupt_handler=interrupt_handler)
         is_error = False
+    except InterruptRequested:
+        raise
     except Exception as e:
         result = f"Error: {type(e).__name__}: {e}"
         is_error = True

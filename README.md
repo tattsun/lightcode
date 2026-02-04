@@ -46,6 +46,12 @@ make docker-run
 | `--web-search` | Enable web search tools |
 | `--log-file <path>` | Save session log to JSONL file |
 
+## Keyboard Shortcuts
+
+| Key | Action |
+|-----|--------|
+| `Ctrl-C` or `Esc` | Interrupt current operation (API call, tool execution) |
+
 ## Available Tools
 
 ### File Operations

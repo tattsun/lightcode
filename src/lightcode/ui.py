@@ -2,6 +2,8 @@
 
 import json
 
+from prompt_toolkit import prompt as pt_prompt
+from prompt_toolkit.key_binding import KeyBindings
 from rich.console import Console
 from rich.panel import Panel
 from rich.syntax import Syntax
@@ -73,8 +75,24 @@ def render_result(result: str, is_error: bool = False) -> Panel:
     )
 
 
-def request_permission(name: str, arguments: dict, index: int, total: int) -> bool:
-    """Request user permission for tool execution."""
+class _EscPressed(Exception):
+    """Internal exception for Esc key press."""
+
+    pass
+
+
+def request_permission(name: str, arguments: dict, index: int, total: int) -> bool | None:
+    """Request user permission for tool execution.
+
+    Args:
+        name: Tool name
+        arguments: Tool arguments
+        index: Current tool index
+        total: Total number of tools
+
+    Returns:
+        True if allowed, False if denied, None if interrupted (Esc pressed).
+    """
     console.print()
 
     # Header
@@ -93,8 +111,24 @@ def request_permission(name: str, arguments: dict, index: int, total: int) -> bo
         subtitle_align="right",
     ))
 
+    # Create key bindings with Esc support
+    bindings = KeyBindings()
+
+    @bindings.add("escape")
+    def _(event):
+        raise _EscPressed()
+
     while True:
-        answer = console.input("[yellow]Allow execution? [y/n]:[/] ").strip().lower()
+        try:
+            answer = pt_prompt(
+                "Allow execution? [y/n]: ",
+                key_bindings=bindings,
+            ).strip().lower()
+        except _EscPressed:
+            return None
+        except (EOFError, KeyboardInterrupt):
+            return None
+
         if answer in ("y", "yes"):
             return True
         if answer in ("n", "no"):
