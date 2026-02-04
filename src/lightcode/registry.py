@@ -19,8 +19,23 @@ class ToolRegistry:
         self._tools = {tool.name: tool for tool in tools}
 
     def get_schemas(self) -> list[dict]:
-        """Get schemas for all tools."""
+        """Get schemas for all tools (Chat Completions API format)."""
         return [tool.to_schema() for tool in self._tools.values()]
+
+    def get_responses_schemas(self) -> list[dict]:
+        """Get schemas for all tools (Responses API format)."""
+        schemas = []
+        for tool in self._tools.values():
+            schema = tool.to_schema()
+            # Convert from Chat Completions format to Responses API format
+            func = schema.get("function", {})
+            schemas.append({
+                "type": "function",
+                "name": func.get("name"),
+                "description": func.get("description"),
+                "parameters": func.get("parameters"),
+            })
+        return schemas
 
     def execute(self, name: str, arguments: dict) -> str:
         """Execute a tool."""
