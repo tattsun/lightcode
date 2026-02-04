@@ -67,6 +67,9 @@ make docker-run
 - `pptx_add_slide` - Add slides with shape-based layout
 - `pptx_modify_slide` - Edit slides, add/remove shapes
 - `pptx_export_image` - Export slides as PNG images
+- `pptx_duplicate_slide` - Duplicate an existing slide
+- `pptx_find_text` - Find text across slides
+- `pptx_layout` - Align/distribute/snap shapes on a slide
 
 ### System
 - `run_command` - Execute shell commands

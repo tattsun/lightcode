@@ -21,6 +21,9 @@ from lightcode.tools.pptx import (
     PptxAddSlideTool,
     PptxModifySlideTool,
     PptxExportImageTool,
+    PptxDuplicateSlideTool,
+    PptxFindTextTool,
+    PptxLayoutTool,
 )
 
 # Available tools
@@ -47,6 +50,9 @@ ALL_TOOLS: list[Tool] = [
     PptxAddSlideTool(),
     PptxModifySlideTool(),
     PptxExportImageTool(),
+    PptxDuplicateSlideTool(),
+    PptxFindTextTool(),
+    PptxLayoutTool(),
 ]
 
 __all__ = [
@@ -70,5 +76,8 @@ __all__ = [
     "PptxAddSlideTool",
     "PptxModifySlideTool",
     "PptxExportImageTool",
+    "PptxDuplicateSlideTool",
+    "PptxFindTextTool",
+    "PptxLayoutTool",
     "ALL_TOOLS",
 ]
