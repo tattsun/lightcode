@@ -122,6 +122,54 @@ class EscKeyMonitor:
             self._stop_event.wait(0.1)
 
 
+def run_with_interrupt(
+    func,
+    handler: "InterruptHandler",
+    check_interval: float = 0.1,
+):
+    """Run function with interrupt support.
+
+    Runs the given function in a background thread while monitoring for
+    interrupts. The caller should have already called handler.monitor_keys().
+
+    Args:
+        func: The function to run
+        handler: Interrupt handler for coordination
+        check_interval: How often to check for interrupts (seconds)
+
+    Returns:
+        The result of the function
+
+    Raises:
+        InterruptRequested: If user requests interruption
+        Exception: Any exception raised by the function
+    """
+    result_container: dict = {"result": None, "error": None}
+    done = threading.Event()
+
+    def worker():
+        try:
+            result_container["result"] = func()
+        except Exception as e:
+            result_container["error"] = e
+        finally:
+            done.set()
+
+    thread = threading.Thread(target=worker, daemon=True)
+    thread.start()
+
+    # Wait for completion while checking for interrupts
+    while not done.is_set():
+        if handler.is_interrupted():
+            raise InterruptRequested()
+        done.wait(timeout=check_interval)
+
+    if result_container["error"]:
+        raise result_container["error"]
+
+    return result_container["result"]
+
+
 class InterruptHandler:
     """Handles interrupt requests from Ctrl-C and Esc key."""
 

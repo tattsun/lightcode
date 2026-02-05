@@ -73,6 +73,44 @@ make docker-run
 
 ### System
 - `run_command` - Execute shell commands
+- `subagent` - Run tasks in isolated subagent contexts (requires configuration)
+
+## Configuration
+
+Configure tools in `~/.lightcode/config.yaml` (global) or `./lightcode.yaml` (local). Local config overrides global.
+
+```yaml
+# Main agent tools (optional - defaults to all tools if not specified)
+main_agent:
+  tools:
+    - run_command
+    - read_file
+    - write_file
+    - subagent  # Include to enable subagent calls
+
+# Subagent types for isolated task execution
+subagents:
+  general:
+    description: "General-purpose agent for file operations"
+    tools:
+      - run_command
+      - grep
+      - find_files
+      - read_file
+      - write_file
+
+  pptx:
+    description: "PowerPoint specialist agent"
+    tools:
+      - read_file
+      - write_file
+      - pptx_create
+      - pptx_read
+      - pptx_add_slide
+      - pptx_modify_slide
+```
+
+Subagents run tasks in isolated contexts, preventing context saturation. Include `subagent` in `main_agent.tools` to enable calling subagents.
 
 ## System Requirements
 

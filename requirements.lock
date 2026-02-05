@@ -115,6 +115,7 @@ python-pptx==1.0.2
     # via lightcode
 pyyaml==6.0.3
     # via huggingface-hub
+    # via lightcode
 referencing==0.37.0
     # via jsonschema
     # via jsonschema-specifications

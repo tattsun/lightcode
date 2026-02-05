@@ -15,10 +15,11 @@ from prompt_toolkit import prompt as pt_prompt
 from rich.markdown import Markdown
 from rich.panel import Panel
 
-from lightcode.interrupt import InterruptHandler, InterruptRequested
+from lightcode.config import load_config
+from lightcode.interrupt import InterruptHandler, InterruptRequested, run_with_interrupt
 from lightcode.logging import append_log
 from lightcode.registry import ToolRegistry, execute_tool
-from lightcode.tools import ALL_TOOLS, WebFetchTool, WebSearchTool
+from lightcode.tools import ALL_TOOLS, ALL_TOOLS_BY_NAME, SubAgentTool, WebFetchTool, WebSearchTool
 from lightcode.ui import console
 
 T = TypeVar("T")
@@ -230,9 +231,28 @@ class ResponsesClient(ApiClient):
         self.reasoning_effort = reasoning_effort
         self.previous_response_id: str | None = None
         self.pending_tool_outputs: list[dict] = []
+        # Track token usage from API responses
+        self.total_input_tokens: int = 0
+        self.total_output_tokens: int = 0
+        # Get max tokens from model info
+        try:
+            model_info = litellm.get_model_info(config.model)
+            self.max_tokens = model_info.get("max_input_tokens", 128_000)
+        except Exception:
+            self.max_tokens = 128_000
 
     def get_status_text(self) -> str:
-        return "[muted]Ready[/]"
+        if self.total_input_tokens == 0:
+            return "[muted]Ready[/]"
+        percentage = self.total_input_tokens * 100 // self.max_tokens
+        return f"[muted]{self._format_tokens(self.total_input_tokens)} / {self._format_tokens(self.max_tokens)} tokens ({percentage}%)[/]"
+
+    def _format_tokens(self, n: int) -> str:
+        if n >= 1_000_000:
+            return f"{n / 1_000_000:.1f}M"
+        if n >= 1_000:
+            return f"{n / 1_000:.1f}K"
+        return str(n)
 
     def _serialize_output(self, output: list) -> list[dict]:
         """Serialize Responses API output for logging."""
@@ -269,6 +289,15 @@ class ResponsesClient(ApiClient):
         )
 
         self.previous_response_id = response.id
+
+        # Update token usage from response
+        if hasattr(response, "usage") and response.usage:
+            usage = response.usage
+            # Use input_tokens (current context size) for display
+            if hasattr(usage, "input_tokens"):
+                self.total_input_tokens = usage.input_tokens
+            if hasattr(usage, "output_tokens"):
+                self.total_output_tokens += usage.output_tokens
 
         if self.config.log_file:
             append_log(self.config.log_file, {
@@ -353,59 +382,9 @@ class ResponsesClient(ApiClient):
         # for any function calls in the previous response
         self.pending_tool_outputs = []
         self.previous_response_id = None
-
-
-# -----------------------------------------------------------------------------
-# Interrupt Support
-# -----------------------------------------------------------------------------
-
-
-def run_with_interrupt(
-    func: Callable[[], T],
-    handler: InterruptHandler,
-    check_interval: float = 0.1,
-) -> T:
-    """Run function with interrupt support.
-
-    Runs the given function in a background thread while monitoring for
-    interrupts. The caller should have already called handler.monitor_keys().
-
-    Args:
-        func: The function to run
-        handler: Interrupt handler for coordination
-        check_interval: How often to check for interrupts (seconds)
-
-    Returns:
-        The result of the function
-
-    Raises:
-        InterruptRequested: If user requests interruption
-        Exception: Any exception raised by the function
-    """
-    result_container: dict = {"result": None, "error": None}
-    done = threading.Event()
-
-    def worker():
-        try:
-            result_container["result"] = func()
-        except Exception as e:
-            result_container["error"] = e
-        finally:
-            done.set()
-
-    thread = threading.Thread(target=worker, daemon=True)
-    thread.start()
-
-    # Wait for completion while checking for interrupts
-    while not done.is_set():
-        if handler.is_interrupted():
-            raise InterruptRequested()
-        done.wait(timeout=check_interval)
-
-    if result_container["error"]:
-        raise result_container["error"]
-
-    return result_container["result"]
+        # Reset token usage since context is cleared
+        self.total_input_tokens = 0
+        self.total_output_tokens = 0
 
 
 SYSTEM_PROMPT = """\
@@ -558,6 +537,8 @@ def run_repl_loop(client: ApiClient, config: ReplConfig) -> None:
             break
         except Exception as e:
             console.print(f"\n[error]Error: {e}[/]\n")
+            # Reset context to avoid "No tool output found" errors
+            client.reset_context()
 
 
 def run_repl(
@@ -585,14 +566,49 @@ def run_repl(
         console.print(f"[success]🧠 Reasoning effort: {reasoning_effort}[/]")
     if log_file:
         console.print(f"[success]📝 Logging to: {log_file}[/]")
+
+    # Load configuration
+    config = load_config()
+    if config.subagents:
+        types_str = ", ".join(config.subagents.keys())
+        console.print(f"[success]🤖 Subagent types: {types_str}[/]")
+
     console.print("[muted]Type 'exit' or 'quit' to exit[/]")
     console.print()
 
-    # Build tool list
-    tools = list(ALL_TOOLS)
+    # Build complete tools dictionary (all available tools by name)
+    all_tools_by_name = dict(ALL_TOOLS_BY_NAME)
     if enable_web_search:
-        tools.append(WebSearchTool())
-        tools.append(WebFetchTool())
+        all_tools_by_name["web_search"] = WebSearchTool()
+        all_tools_by_name["web_fetch"] = WebFetchTool()
+
+    # Add SubAgentTool to available tools if subagents are configured
+    if config.subagents:
+        subagent_tool = SubAgentTool(
+            model=model,
+            all_tools=all_tools_by_name,
+            subagent_configs=config.subagents,
+            api_mode=api_mode,
+            reasoning_effort=reasoning_effort,
+        )
+        all_tools_by_name["subagent"] = subagent_tool
+
+    # Build main agent tool list
+    if config.main_tools is not None:
+        # Use tools specified in config
+        tools: list = []
+        for tool_name in config.main_tools:
+            if tool_name in all_tools_by_name:
+                tools.append(all_tools_by_name[tool_name])
+    else:
+        # Use default ALL_TOOLS + web search + subagent
+        tools = list(ALL_TOOLS)
+        if enable_web_search:
+            tools.append(all_tools_by_name["web_search"])
+            tools.append(all_tools_by_name["web_fetch"])
+        if "subagent" in all_tools_by_name:
+            tools.append(all_tools_by_name["subagent"])
+
     registry = ToolRegistry(tools)
 
     # Set up system prompt

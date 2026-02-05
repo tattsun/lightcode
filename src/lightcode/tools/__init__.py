@@ -12,6 +12,7 @@ from lightcode.tools.move_file import MoveFileTool
 from lightcode.tools.read_file import ReadFileTool
 from lightcode.tools.read_image import ReadImageTool
 from lightcode.tools.run_command import RunCommandTool
+from lightcode.tools.subagent import SubAgentTool
 from lightcode.tools.web_fetch import WebFetchTool
 from lightcode.tools.web_search import WebSearchTool
 from lightcode.tools.write_file import WriteFileTool
@@ -55,6 +56,9 @@ ALL_TOOLS: list[Tool] = [
     PptxLayoutTool(),
 ]
 
+# Dictionary mapping tool names to tool instances for subagent support
+ALL_TOOLS_BY_NAME: dict[str, Tool] = {tool.name: tool for tool in ALL_TOOLS}
+
 __all__ = [
     "Tool",
     "CopyFileTool",
@@ -68,6 +72,7 @@ __all__ = [
     "ReadFileTool",
     "ReadImageTool",
     "RunCommandTool",
+    "SubAgentTool",
     "WebFetchTool",
     "WebSearchTool",
     "WriteFileTool",
@@ -80,4 +85,5 @@ __all__ = [
     "PptxFindTextTool",
     "PptxLayoutTool",
     "ALL_TOOLS",
+    "ALL_TOOLS_BY_NAME",
 ]
