@@ -22,6 +22,9 @@ class SubAgentTool(Tool):
     def __init__(
         self,
         model: str,
+        api_base: str | None,
+        api_key: str | None,
+        max_input_tokens: int | None,
         all_tools: dict[str, Tool],
         subagent_configs: dict[str, SubagentConfig],
         api_mode: str = "responses",
@@ -31,12 +34,18 @@ class SubAgentTool(Tool):
 
         Args:
             model: Model to use for subagents.
+            api_base: Custom API base URL (optional).
+            api_key: API key (optional).
+            max_input_tokens: Maximum input tokens (optional).
             all_tools: Dictionary of all available tools by name.
             subagent_configs: Dictionary of subagent configurations by type name.
             api_mode: API mode ('completion' or 'responses').
             reasoning_effort: Reasoning effort level for Responses API.
         """
         self._model = model
+        self._api_base = api_base
+        self._api_key = api_key
+        self._max_input_tokens = max_input_tokens
         self._all_tools = all_tools
         self._subagent_configs = subagent_configs
         self._api_mode = api_mode
@@ -147,6 +156,8 @@ Available subagent types:
                 context=context,
                 description=config.description,
                 model=self._model,
+                api_base=self._api_base,
+                api_key=self._api_key,
                 tools=tools,
                 api_mode=self._api_mode,
                 reasoning_effort=self._reasoning_effort,

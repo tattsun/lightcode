@@ -4,6 +4,7 @@ sandbox
 logs
 *.pptx
 AGENTS.md
+lightcode.yaml
 
 # python generated files
 __pycache__/

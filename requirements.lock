@@ -95,6 +95,7 @@ packaging==26.0
 pdf2image==1.17.0
     # via lightcode
 pillow==12.1.0
+    # via lightcode
     # via pdf2image
     # via python-pptx
 prompt-toolkit==3.0.52

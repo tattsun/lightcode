@@ -5,7 +5,7 @@ import json
 from pptx import Presentation
 
 from lightcode.tools.base import Tool
-from lightcode.tools.pptx._common import get_layout, set_slide_background, add_shape, populate_placeholder
+from lightcode.tools.pptx._common import get_layout, set_slide_background, add_shape, populate_placeholder, add_table
 
 
 class PptxAddSlideTool(Tool):
@@ -47,6 +47,16 @@ Rich text: [{"text": "Normal "}, {"text": "BOLD", "bold": true}, {"text": "Link"
 font_theme_color values: TEXT_1, TEXT_2, ACCENT_1-6, BACKGROUND_1-2, DARK_1-2, LIGHT_1-2
 hyperlink: URL string for clickable links
 
+Tables:
+[{
+  "left": 1.0, "top": 2.0, "width": 8.0, "height": 3.0,
+  "rows": 4, "columns": 3,
+  "data": [["Header1", "Header2", "Header3"], ["A", "B", "C"]],
+  "header_style": {"bold": true, "fill_color": "#1F4E79", "font_color": "#FFFFFF"},
+  "column_widths": [2.0, 3.0, 3.0],
+  "merge_cells": ["A1:B1"]
+}]
+
 The slide is added at the specified position or at the end if position is not specified."""
 
     @property
@@ -83,6 +93,11 @@ The slide is added at the specified position or at the end if position is not sp
                 "type": "string",
                 "description": "Speaker notes for the slide",
             },
+            "tables": {
+                "type": "array",
+                "items": {"type": "object"},
+                "description": "Array of table objects. Each: {left, top, width, height, rows, columns, data (2D array), header_style, column_widths, merge_cells}",
+            },
         }
 
     def execute(self, **kwargs) -> str:
@@ -93,11 +108,12 @@ The slide is added at the specified position or at the end if position is not sp
         placeholders = kwargs.get("placeholders", [])
         position = kwargs.get("position")
         notes = kwargs.get("notes")
+        tables = kwargs.get("tables", [])
 
         if not path:
             return "Error: path is required"
-        if not shapes and not placeholders:
-            return "Error: shapes or placeholders is required"
+        if not shapes and not placeholders and not tables:
+            return "Error: shapes, placeholders, or tables is required"
 
         if not os.path.exists(path):
             return f"Error: File not found: {path}"
@@ -111,6 +127,13 @@ The slide is added at the specified position or at the end if position is not sp
                     shapes = json.loads(shapes)
                 except json.JSONDecodeError as e:
                     return f"Error: Invalid JSON in shapes: {e}"
+
+            # Parse tables if string
+            if isinstance(tables, str):
+                try:
+                    tables = json.loads(tables)
+                except json.JSONDecodeError as e:
+                    return f"Error: Invalid JSON in tables: {e}"
 
             # Add slide with layout
             slide = prs.slides.add_slide(get_layout(prs, layout_name))
@@ -152,6 +175,35 @@ The slide is added at the specified position or at the end if position is not sp
                     italic=shape_data.get("italic"),
                     underline=shape_data.get("underline"),
                     font_name=shape_data.get("font_name"),
+                )
+
+            # Add tables
+            for table_data in tables:
+                if isinstance(table_data, str):
+                    try:
+                        table_data = json.loads(table_data)
+                    except json.JSONDecodeError:
+                        continue
+
+                left = float(table_data.get("left", 0))
+                top = float(table_data.get("top", 0))
+                width = float(table_data.get("width", 6))
+                height = float(table_data.get("height", 3))
+                rows = int(table_data.get("rows", 2))
+                cols = int(table_data.get("columns", 2))
+
+                add_table(
+                    slide,
+                    left=left,
+                    top=top,
+                    width=width,
+                    height=height,
+                    rows=rows,
+                    cols=cols,
+                    data=table_data.get("data"),
+                    header_style=table_data.get("header_style"),
+                    column_widths=table_data.get("column_widths"),
+                    merge_cells=table_data.get("merge_cells"),
                 )
 
             # Populate placeholders (optional)

@@ -27,6 +27,23 @@ MAX_RESULT_LINES = 5
 MAX_LINE_LENGTH = 80
 
 
+def format_image_attachments(images: list) -> str:
+    """Format image attachment info for display.
+
+    Args:
+        images: List of ClipboardImage objects
+
+    Returns:
+        Formatted string showing attachment count
+    """
+    if not images:
+        return ""
+    count = len(images)
+    if count == 1:
+        return "[success]📎 1 image attached[/]"
+    return f"[success]📎 {count} images attached[/]"
+
+
 def truncate_result(result: str) -> str:
     """Truncate tool result for display."""
     lines = result.split("\n")

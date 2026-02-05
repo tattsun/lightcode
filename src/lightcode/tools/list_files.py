@@ -26,7 +26,7 @@ class ListFilesTool(Tool):
         }
 
     def execute(self, **kwargs) -> str:
-        path = kwargs.get("path", ".")
+        path = kwargs.get("path") or "."
 
         try:
             entries = os.listdir(path)

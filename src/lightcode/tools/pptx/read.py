@@ -27,9 +27,11 @@ Returns slide information including:
 - Rich text runs with styling info (optional, use include_rich_text=true)
 - Paragraph structure with levels and runs (optional, use include_rich_text=true)
 - Available layout names and indices (optional, use include_layouts=true)
+- Table data with merged cell info (default: true, use include_table_data=false to hide)
 
 Use pptx_modify_slide to edit shapes based on the information returned by this tool.
-When using rich_text in pptx_modify_slide, first use include_rich_text=true here to see the text structure."""
+When using rich_text in pptx_modify_slide, first use include_rich_text=true here to see the text structure.
+For tables, use update_table_cells in pptx_modify_slide to edit cell contents."""
 
     @property
     def parameters(self) -> dict:
@@ -55,6 +57,10 @@ When using rich_text in pptx_modify_slide, first use include_rich_text=true here
                 "type": "boolean",
                 "description": "Include available layout names and indices (default: false)",
             },
+            "include_table_data": {
+                "type": "boolean",
+                "description": "Include table cell data in output (default: true)",
+            },
         }
 
     def execute(self, **kwargs) -> str:
@@ -63,6 +69,7 @@ When using rich_text in pptx_modify_slide, first use include_rich_text=true here
         include_notes = kwargs.get("include_notes", False)
         include_rich_text = kwargs.get("include_rich_text", False)
         include_layouts = kwargs.get("include_layouts", False)
+        include_table_data = kwargs.get("include_table_data", True)
 
         if not path:
             return "Error: path is required"
@@ -116,6 +123,7 @@ When using rich_text in pptx_modify_slide, first use include_rich_text=true here
                         include_rich_text,
                         layout_name=layout_name,
                         layout_index=layout_index,
+                        include_table_data=include_table_data,
                     )
                 )
             else:
@@ -135,6 +143,7 @@ When using rich_text in pptx_modify_slide, first use include_rich_text=true here
                             include_rich_text,
                             layout_name=layout_name,
                             layout_index=layout_index,
+                            include_table_data=include_table_data,
                         )
                     )
                     output_lines.append("")  # Blank line between slides

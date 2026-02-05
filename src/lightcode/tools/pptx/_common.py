@@ -1,11 +1,11 @@
 """Common utilities for PowerPoint tools."""
 
+import re
 from pptx.util import Inches, Pt, Emu
-from pptx.enum.shapes import MSO_SHAPE
+from pptx.enum.shapes import MSO_SHAPE, MSO_SHAPE_TYPE
 from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
 from pptx.enum.dml import MSO_THEME_COLOR
 from pptx.dml.color import RGBColor
-from pptx.oxml.ns import qn
 from pptx.presentation import Presentation
 from pptx.slide import Slide
 from pptx.shapes.base import BaseShape
@@ -588,13 +588,14 @@ def add_shape(slide: Slide, shape_type: str, left: float, top: float,
     return shape
 
 
-def format_shape_info(shape: BaseShape, indent: int = 0, include_rich_text: bool = False) -> list[str]:
+def format_shape_info(shape: BaseShape, indent: int = 0, include_rich_text: bool = False, include_table_data: bool = True) -> list[str]:
     """Format a single shape's information.
 
     Args:
         shape: Shape object
         indent: Indentation level for nested shapes
         include_rich_text: Whether to include rich text (run-level) information
+        include_table_data: Whether to include table cell data
 
     Returns:
         List of formatted strings
@@ -602,6 +603,13 @@ def format_shape_info(shape: BaseShape, indent: int = 0, include_rich_text: bool
     lines = []
     prefix = "  " * indent + "- "
     text_prefix = "  " * indent + "  "
+
+    # Check if this is a table shape
+    if shape.shape_type == MSO_SHAPE_TYPE.TABLE:
+        table_info = extract_table_info(shape, include_data=include_table_data)
+        if table_info:
+            lines.extend(format_table_info(table_info, indent=indent))
+            return lines
 
     info = extract_shape_info(shape, include_rich_text=include_rich_text)
 
@@ -694,14 +702,14 @@ def format_shape_info(shape: BaseShape, indent: int = 0, include_rich_text: bool
     # Recursively process group shapes
     if info['type'] == 'GROUP' and hasattr(shape, 'shapes'):
         for child_shape in shape.shapes:
-            lines.extend(format_shape_info(child_shape, indent + 1, include_rich_text=include_rich_text))
+            lines.extend(format_shape_info(child_shape, indent + 1, include_rich_text=include_rich_text, include_table_data=include_table_data))
 
     return lines
 
 
 def format_slide_info(slide: Slide, slide_number: int, include_notes: bool = False,
                       include_rich_text: bool = False, layout_name: str | None = None,
-                      layout_index: int | None = None) -> str:
+                      layout_index: int | None = None, include_table_data: bool = True) -> str:
     """Format slide information as readable text.
 
     Args:
@@ -709,6 +717,7 @@ def format_slide_info(slide: Slide, slide_number: int, include_notes: bool = Fal
         slide_number: 1-based slide number
         include_notes: Whether to include speaker notes
         include_rich_text: Whether to include rich text (run-level) information
+        include_table_data: Whether to include table cell data (default: True)
 
     Returns:
         Formatted string with slide information
@@ -721,7 +730,7 @@ def format_slide_info(slide: Slide, slide_number: int, include_notes: bool = Fal
             lines.append(f"Layout: {layout_name}")
 
     for shape in slide.shapes:
-        lines.extend(format_shape_info(shape, include_rich_text=include_rich_text))
+        lines.extend(format_shape_info(shape, include_rich_text=include_rich_text, include_table_data=include_table_data))
 
     if include_notes and slide.has_notes_slide:
         notes_text = slide.notes_slide.notes_text_frame.text
@@ -729,3 +738,323 @@ def format_slide_info(slide: Slide, slide_number: int, include_notes: bool = Fal
             lines.append(f"Notes: {notes_text}")
 
     return "\n".join(lines)
+
+
+# =============================================================================
+# Table Utilities
+# =============================================================================
+
+
+def cell_address_to_indices(address: str) -> tuple[int, int]:
+    """Convert Excel-style cell address to (row, col) indices.
+
+    Args:
+        address: Cell address like "A1", "B3", "AA10"
+
+    Returns:
+        Tuple of (row_index, col_index), both 0-based
+
+    Examples:
+        "A1" -> (0, 0)
+        "B3" -> (2, 1)
+        "AA1" -> (0, 26)
+    """
+    match = re.match(r'^([A-Za-z]+)(\d+)$', address)
+    if not match:
+        raise ValueError(f"Invalid cell address: {address}")
+
+    col_str = match.group(1).upper()
+    row_str = match.group(2)
+
+    # Convert column letters to index (A=0, B=1, ..., Z=25, AA=26, ...)
+    col_idx = 0
+    for char in col_str:
+        col_idx = col_idx * 26 + (ord(char) - ord('A') + 1)
+    col_idx -= 1  # Convert to 0-based
+
+    row_idx = int(row_str) - 1  # Convert to 0-based
+
+    return (row_idx, col_idx)
+
+
+def indices_to_cell_address(row: int, col: int) -> str:
+    """Convert (row, col) indices to Excel-style cell address.
+
+    Args:
+        row: Row index (0-based)
+        col: Column index (0-based)
+
+    Returns:
+        Cell address like "A1", "B3"
+
+    Examples:
+        (0, 0) -> "A1"
+        (2, 1) -> "B3"
+        (0, 26) -> "AA1"
+    """
+    col_str = ""
+    col_num = col + 1  # Convert to 1-based for calculation
+    while col_num > 0:
+        col_num, remainder = divmod(col_num - 1, 26)
+        col_str = chr(ord('A') + remainder) + col_str
+
+    return f"{col_str}{row + 1}"
+
+
+def extract_table_info(shape, include_data: bool = True) -> dict | None:
+    """Extract information from a table shape.
+
+    Args:
+        shape: Table shape object
+        include_data: Whether to include cell data
+
+    Returns:
+        Dictionary with table information or None if not a table
+    """
+    if not hasattr(shape, 'table'):
+        return None
+
+    table = shape.table
+    rows = len(table.rows)
+    cols = len(table.columns)
+
+    info = {
+        "shape_id": shape.shape_id,
+        "name": shape.name,
+        "left": round(emu_to_inches(shape.left), 2) if shape.left else 0,
+        "top": round(emu_to_inches(shape.top), 2) if shape.top else 0,
+        "width": round(emu_to_inches(shape.width), 2) if shape.width else 0,
+        "height": round(emu_to_inches(shape.height), 2) if shape.height else 0,
+        "rows": rows,
+        "columns": cols,
+    }
+
+    # Detect merged cells using python-pptx properties
+    merged_cells = []
+
+    for row_idx in range(rows):
+        for col_idx in range(cols):
+            cell = table.cell(row_idx, col_idx)
+
+            # Check if this cell is the origin of a merge
+            if hasattr(cell, 'is_merge_origin') and cell.is_merge_origin:
+                h_span = cell.span_width
+                v_span = cell.span_height
+
+                if h_span > 1 or v_span > 1:
+                    start_addr = indices_to_cell_address(row_idx, col_idx)
+                    end_addr = indices_to_cell_address(row_idx + v_span - 1, col_idx + h_span - 1)
+                    merged_cells.append({
+                        "range": f"{start_addr}:{end_addr}",
+                        "span": f"{v_span}x{h_span}"
+                    })
+
+    if merged_cells:
+        info["merged_cells"] = merged_cells
+
+    # Extract cell data
+    if include_data:
+        data = []
+        for row_idx in range(rows):
+            row_data = []
+            for col_idx in range(cols):
+                cell = table.cell(row_idx, col_idx)
+                cell_text = cell.text if cell.text else ""
+                row_data.append(cell_text)
+            data.append(row_data)
+        info["data"] = data
+
+    return info
+
+
+def format_table_info(table_info: dict, indent: int = 0) -> list[str]:
+    """Format table information as readable strings.
+
+    Args:
+        table_info: Dictionary from extract_table_info
+        indent: Indentation level
+
+    Returns:
+        List of formatted strings
+    """
+    lines = []
+    prefix = "  " * indent + "- "
+    text_prefix = "  " * indent + "  "
+
+    # Header line
+    shape_desc = f"{prefix}Shape ID {table_info['shape_id']}: TABLE"
+    shape_desc += f" at ({table_info['left']}, {table_info['top']})"
+    shape_desc += f", size ({table_info['width']}, {table_info['height']})"
+    lines.append(shape_desc)
+
+    # Table dimensions
+    lines.append(f"{text_prefix}Table: {table_info['rows']} rows x {table_info['columns']} columns")
+
+    # Merged cells
+    if "merged_cells" in table_info and table_info["merged_cells"]:
+        merged_strs = [f"{m['range']} ({m['span']})" for m in table_info["merged_cells"]]
+        lines.append(f"{text_prefix}Merged cells: {', '.join(merged_strs)}")
+
+    # Data
+    if "data" in table_info:
+        lines.append(f"{text_prefix}Data:")
+        for row_idx, row in enumerate(table_info["data"]):
+            # Truncate long cell values for display
+            display_row = []
+            for cell_val in row:
+                if len(cell_val) > 30:
+                    display_row.append(cell_val[:27] + "...")
+                else:
+                    display_row.append(cell_val)
+            lines.append(f"{text_prefix}  Row {row_idx}: {display_row}")
+
+    return lines
+
+
+def apply_cell_style(cell, style: dict):
+    """Apply styling to a table cell.
+
+    Args:
+        cell: Table cell object
+        style: Dictionary with style properties:
+            - text: Cell text content
+            - font_size: Font size in points
+            - font_color: Font color as hex string
+            - font_name: Font family name
+            - bold: Whether text is bold
+            - italic: Whether text is italic
+            - underline: Whether text is underlined
+            - fill_color: Cell background color as hex string
+            - vertical_anchor: Vertical alignment ('top', 'middle', 'bottom')
+    """
+    # Set text if provided
+    if "text" in style:
+        cell.text = str(style["text"])
+
+    # Apply text styling to all paragraphs and runs
+    if cell.text_frame:
+        for para in cell.text_frame.paragraphs:
+            for run in para.runs:
+                if "font_size" in style:
+                    run.font.size = Pt(style["font_size"])
+                if "font_color" in style:
+                    run.font.color.rgb = hex_to_rgb(style["font_color"])
+                if "font_name" in style:
+                    run.font.name = style["font_name"]
+                if "bold" in style:
+                    run.font.bold = style["bold"]
+                if "italic" in style:
+                    run.font.italic = style["italic"]
+                if "underline" in style:
+                    run.font.underline = style["underline"]
+                # Support theme colors
+                if "font_theme_color" in style:
+                    theme_enum = THEME_COLOR_MAP.get(str(style["font_theme_color"]).upper())
+                    if theme_enum:
+                        run.font.color.theme_color = theme_enum
+
+            # Also apply to paragraph level if no runs
+            if not para.runs:
+                if "font_size" in style:
+                    para.font.size = Pt(style["font_size"])
+                if "font_color" in style:
+                    para.font.color.rgb = hex_to_rgb(style["font_color"])
+                if "font_name" in style:
+                    para.font.name = style["font_name"]
+                if "bold" in style:
+                    para.font.bold = style["bold"]
+                if "italic" in style:
+                    para.font.italic = style["italic"]
+                if "underline" in style:
+                    para.font.underline = style["underline"]
+
+    # Cell fill color
+    if "fill_color" in style:
+        cell.fill.solid()
+        cell.fill.fore_color.rgb = hex_to_rgb(style["fill_color"])
+
+    # Vertical alignment
+    if "vertical_anchor" in style:
+        anchor_map = {
+            "top": MSO_ANCHOR.TOP,
+            "middle": MSO_ANCHOR.MIDDLE,
+            "bottom": MSO_ANCHOR.BOTTOM,
+        }
+        anchor = anchor_map.get(style["vertical_anchor"].lower())
+        if anchor and hasattr(cell, 'text_frame'):
+            cell.text_frame.anchor = anchor
+
+
+def add_table(slide: Slide, left: float, top: float, width: float, height: float,
+              rows: int, cols: int, data: list = None, header_style: dict = None,
+              column_widths: list = None, merge_cells: list = None) -> BaseShape:
+    """Add a table to a slide.
+
+    Args:
+        slide: Slide object
+        left, top, width, height: Position and size in inches
+        rows: Number of rows
+        cols: Number of columns
+        data: 2D list of cell values [[row0], [row1], ...]
+        header_style: Style dict for header row (bold, fill_color, font_color, etc.)
+        column_widths: List of column widths in inches
+        merge_cells: List of cell ranges to merge (e.g., ["A1:B1", "C1:C2"])
+
+    Returns:
+        Created table shape
+    """
+    # Create table
+    table_shape = slide.shapes.add_table(
+        rows, cols,
+        Inches(left), Inches(top),
+        Inches(width), Inches(height)
+    )
+    table = table_shape.table
+
+    # Set column widths if provided
+    if column_widths:
+        total_specified = sum(column_widths)
+        for i, col_width in enumerate(column_widths):
+            if i < cols:
+                table.columns[i].width = Inches(col_width)
+        # Distribute remaining width to unspecified columns
+        if len(column_widths) < cols:
+            remaining_width = width - total_specified
+            remaining_cols = cols - len(column_widths)
+            if remaining_width > 0 and remaining_cols > 0:
+                per_col_width = remaining_width / remaining_cols
+                for i in range(len(column_widths), cols):
+                    table.columns[i].width = Inches(per_col_width)
+
+    # Fill in data
+    if data:
+        for row_idx, row_data in enumerate(data):
+            if row_idx >= rows:
+                break
+            for col_idx, cell_value in enumerate(row_data):
+                if col_idx >= cols:
+                    break
+                cell = table.cell(row_idx, col_idx)
+                cell.text = str(cell_value) if cell_value is not None else ""
+
+    # Apply header style to first row
+    if header_style:
+        for col_idx in range(cols):
+            cell = table.cell(0, col_idx)
+            apply_cell_style(cell, header_style)
+
+    # Merge cells
+    if merge_cells:
+        for merge_range in merge_cells:
+            if ":" in merge_range:
+                start, end = merge_range.split(":")
+                start_row, start_col = cell_address_to_indices(start)
+                end_row, end_col = cell_address_to_indices(end)
+
+                # Validate bounds
+                if start_row < rows and start_col < cols and end_row < rows and end_col < cols:
+                    start_cell = table.cell(start_row, start_col)
+                    end_cell = table.cell(end_row, end_col)
+                    start_cell.merge(end_cell)
+
+    return table_shape

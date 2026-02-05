@@ -133,6 +133,8 @@ def run_subagent(
     context: str,
     description: str,
     model: str,
+    api_base: str | None,
+    api_key: str | None,
     tools: list[Tool],
     api_mode: str,
     reasoning_effort: str,
@@ -147,6 +149,8 @@ def run_subagent(
         context: Additional context for the task.
         description: Description of the subagent type.
         model: Model to use.
+        api_base: Custom API base URL (optional).
+        api_key: API key (optional).
         tools: List of available tools for this subagent type.
         api_mode: API mode ('completion' or 'responses').
         reasoning_effort: Reasoning effort level for Responses API.
@@ -179,6 +183,8 @@ def run_subagent(
     if api_mode == "responses":
         return _run_responses_subagent(
             model=model,
+            api_base=api_base,
+            api_key=api_key,
             instructions=instructions,
             registry=registry,
             reasoning_effort=reasoning_effort,
@@ -188,6 +194,8 @@ def run_subagent(
     else:
         return _run_completion_subagent(
             model=model,
+            api_base=api_base,
+            api_key=api_key,
             instructions=instructions,
             registry=registry,
             max_turns=max_turns,
@@ -198,6 +206,8 @@ def run_subagent(
 def _run_completion_subagent(
     *,
     model: str,
+    api_base: str | None,
+    api_key: str | None,
     instructions: str,
     registry: ToolRegistry,
     max_turns: int,
@@ -210,6 +220,13 @@ def _run_completion_subagent(
         {"role": "system", "content": instructions},
         {"role": "user", "content": "Please complete the task described above."},
     ]
+
+    # Build optional kwargs for api_base/api_key
+    optional_kwargs: dict = {}
+    if api_base:
+        optional_kwargs["api_base"] = api_base
+    if api_key:
+        optional_kwargs["api_key"] = api_key
 
     last_content: str | None = None
 
@@ -227,6 +244,7 @@ def _run_completion_subagent(
                     model=model,
                     messages=messages,
                     tools=registry.get_schemas(),
+                    **optional_kwargs,
                 ),
                 interrupt_handler,
             )
@@ -235,6 +253,7 @@ def _run_completion_subagent(
                 model=model,
                 messages=messages,
                 tools=registry.get_schemas(),
+                **optional_kwargs,
             )
 
         choice = response.choices[0]
@@ -290,6 +309,8 @@ def _run_completion_subagent(
 def _run_responses_subagent(
     *,
     model: str,
+    api_base: str | None,
+    api_key: str | None,
     instructions: str,
     registry: ToolRegistry,
     reasoning_effort: str,
@@ -302,6 +323,13 @@ def _run_responses_subagent(
     previous_response_id: str | None = None
     current_input: str | list = "Please complete the task described above."
     last_content: str | None = None
+
+    # Build optional kwargs for api_base/api_key
+    optional_kwargs: dict = {}
+    if api_base:
+        optional_kwargs["api_base"] = api_base
+    if api_key:
+        optional_kwargs["api_key"] = api_key
 
     for turn in range(1, max_turns + 1):
         # Check for interrupt
@@ -320,6 +348,7 @@ def _run_responses_subagent(
                     tools=registry.get_responses_schemas(),
                     previous_response_id=pid,
                     reasoning={"effort": reasoning_effort, "summary": "auto"},
+                    **optional_kwargs,
                 ),
                 interrupt_handler,
             )
@@ -331,6 +360,7 @@ def _run_responses_subagent(
                 tools=registry.get_responses_schemas(),
                 previous_response_id=previous_response_id,
                 reasoning={"effort": reasoning_effort, "summary": "auto"},
+                **optional_kwargs,
             )
 
         previous_response_id = response.id

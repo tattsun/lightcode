@@ -1,9 +1,20 @@
 """Configuration file loading and management."""
 
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
+
+
+@dataclass
+class ModelConfig:
+    """Configuration for LLM model."""
+
+    name: str = "openai/gpt-5.2"
+    api_base: str | None = None
+    api_key: str | None = None
+    max_input_tokens: int | None = None
 
 
 @dataclass
@@ -19,6 +30,8 @@ class SubagentConfig:
 class LightcodeConfig:
     """Full configuration for lightcode."""
 
+    model: ModelConfig = field(default_factory=ModelConfig)
+    subagent_model: ModelConfig | None = None
     main_tools: list[str] | None = None  # None means use ALL_TOOLS (default)
     subagents: dict[str, SubagentConfig] = field(default_factory=dict)
 
@@ -61,6 +74,12 @@ def _merge_configs(base: LightcodeConfig, override: LightcodeConfig) -> Lightcod
     Returns:
         Merged configuration.
     """
+    # model: override if specified (check if it's non-default)
+    model = override.model if override.model.name != ModelConfig().name else base.model
+
+    # subagent_model: override if specified
+    subagent_model = override.subagent_model if override.subagent_model is not None else base.subagent_model
+
     # main_tools: override if specified
     main_tools = override.main_tools if override.main_tools is not None else base.main_tools
 
@@ -68,7 +87,37 @@ def _merge_configs(base: LightcodeConfig, override: LightcodeConfig) -> Lightcod
     subagents = dict(base.subagents)
     subagents.update(override.subagents)
 
-    return LightcodeConfig(main_tools=main_tools, subagents=subagents)
+    return LightcodeConfig(
+        model=model,
+        subagent_model=subagent_model,
+        main_tools=main_tools,
+        subagents=subagents,
+    )
+
+
+def _parse_model_config(data: dict | None) -> ModelConfig:
+    """Parse model configuration from YAML data.
+
+    Args:
+        data: Dictionary with model configuration.
+
+    Returns:
+        ModelConfig parsed from the data.
+    """
+    if not data or not isinstance(data, dict):
+        return ModelConfig()
+
+    name = data.get("name", ModelConfig().name)
+    api_base = data.get("api_base")
+    api_key = data.get("api_key")
+    max_input_tokens = data.get("max_input_tokens")
+
+    return ModelConfig(
+        name=name,
+        api_base=api_base,
+        api_key=api_key,
+        max_input_tokens=max_input_tokens,
+    )
 
 
 def _load_config_from_file(path: Path) -> LightcodeConfig:
@@ -88,6 +137,13 @@ def _load_config_from_file(path: Path) -> LightcodeConfig:
 
     if not data or not isinstance(data, dict):
         return LightcodeConfig()
+
+    # Parse model section
+    model = _parse_model_config(data.get("model"))
+
+    # Parse subagent_model section (optional)
+    subagent_model_data = data.get("subagent_model")
+    subagent_model = _parse_model_config(subagent_model_data) if subagent_model_data else None
 
     # Parse main_agent section
     main_tools: list[str] | None = None
@@ -120,4 +176,64 @@ def _load_config_from_file(path: Path) -> LightcodeConfig:
                 tools=tools,
             )
 
-    return LightcodeConfig(main_tools=main_tools, subagents=subagents)
+    return LightcodeConfig(
+        model=model,
+        subagent_model=subagent_model,
+        main_tools=main_tools,
+        subagents=subagents,
+    )
+
+
+def get_effective_model_config(config: LightcodeConfig) -> ModelConfig:
+    """Get effective model config with environment variable overrides.
+
+    Environment variables (override YAML):
+    - LIGHTCODE_MODEL: Model name
+    - LIGHTCODE_API_BASE: Custom API base URL
+    - LIGHTCODE_API_KEY: API key ('none' to disable)
+
+    Args:
+        config: Loaded configuration.
+
+    Returns:
+        ModelConfig with environment variable overrides applied.
+    """
+    # Start with config values
+    name = config.model.name
+    api_base = config.model.api_base
+    api_key = config.model.api_key
+    max_input_tokens = config.model.max_input_tokens
+
+    # Override with environment variables
+    if env_model := os.environ.get("LIGHTCODE_MODEL"):
+        name = env_model
+
+    if env_api_base := os.environ.get("LIGHTCODE_API_BASE"):
+        api_base = env_api_base
+
+    env_api_key = os.environ.get("LIGHTCODE_API_KEY")
+    if env_api_key is not None:
+        # 'none' means no API key
+        api_key = None if env_api_key.lower() == "none" else env_api_key
+
+    return ModelConfig(
+        name=name,
+        api_base=api_base,
+        api_key=api_key,
+        max_input_tokens=max_input_tokens,
+    )
+
+
+def should_use_completion_api(model: str) -> bool:
+    """Check if a model requires Completion API (Responses API unsupported).
+
+    Local models like Ollama and vLLM don't support Responses API.
+
+    Args:
+        model: Model name in LiteLLM format.
+
+    Returns:
+        True if Completion API should be used.
+    """
+    local_prefixes = ("ollama/", "ollama_chat/", "hosted_vllm/")
+    return model.lower().startswith(local_prefixes)

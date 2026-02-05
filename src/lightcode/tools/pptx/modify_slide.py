@@ -8,7 +8,7 @@ from pptx.enum.dml import MSO_THEME_COLOR_INDEX
 from lightcode.tools.base import Tool
 from pptx.util import Pt, Inches
 
-from lightcode.tools.pptx._common import add_shape, hex_to_rgb, THEME_COLOR_MAP
+from lightcode.tools.pptx._common import add_shape, hex_to_rgb, THEME_COLOR_MAP, cell_address_to_indices, apply_cell_style
 
 
 class PptxModifySlideTool(Tool):
@@ -31,11 +31,12 @@ If the problem persists after a fix, keep iterating until fully resolved - do no
 
 Actions:
 - Update existing shapes by ID (change text, font_size, colors) via update_shapes
+- Update table cells by shape ID via update_table_cells
 - Add new shapes via add_shapes
 - Remove shapes by ID via remove_shape_ids
 - Delete the entire slide via delete
 
-First use pptx_read to get shape IDs and positions.
+First use pptx_read to get shape IDs and positions (including table data).
 
 update_shapes examples:
 - Change text: [{"shape_id": 2, "text": "New text"}]
@@ -58,7 +59,16 @@ add_shapes example:
 [{"type": "textbox", "left": 1.0, "top": 5.0, "width": 4.0, "height": 1.0, "text": "Text", "font_size": 18}]
 
 Shape types: textbox, rectangle, rounded_rectangle, oval, arrow_right, arrow_left, etc.
-Coordinates in inches. Use pptx_read to get actual slide dimensions."""
+Coordinates in inches. Use pptx_read to get actual slide dimensions.
+
+update_table_cells example (edit table cells by shape_id):
+[{"shape_id": 3, "cells": [
+  {"cell": "A1", "text": "New Value"},
+  {"cell": "B2", "text": "Bold", "bold": true, "fill_color": "#FFFF00"},
+  {"row": 0, "col": 1, "text": "By index"}
+]}]
+Cell address: Excel-style "A1" or {"row": 0, "col": 0}
+Cell properties: text, font_size, font_color, font_name, bold, italic, underline, fill_color, font_theme_color, vertical_anchor"""
 
     @property
     def parameters(self) -> dict:
@@ -88,6 +98,11 @@ Coordinates in inches. Use pptx_read to get actual slide dimensions."""
                 "items": {"type": "integer"},
                 "description": "Array of shape IDs to remove (get IDs from pptx_read)",
             },
+            "update_table_cells": {
+                "type": "array",
+                "items": {"type": "object"},
+                "description": "Update table cells. Each: {shape_id, cells: [{cell or row/col, text, font_size, font_color, bold, italic, underline, fill_color, font_theme_color, vertical_anchor}]}",
+            },
             "notes": {
                 "type": "string",
                 "description": "New speaker notes",
@@ -104,6 +119,7 @@ Coordinates in inches. Use pptx_read to get actual slide dimensions."""
         update_shapes = kwargs.get("update_shapes", [])
         add_shapes_list = kwargs.get("add_shapes", [])
         remove_shape_ids = kwargs.get("remove_shape_ids", [])
+        update_table_cells = kwargs.get("update_table_cells", [])
         notes = kwargs.get("notes")
         delete = kwargs.get("delete", False)
 
@@ -422,6 +438,90 @@ Coordinates in inches. Use pptx_read to get actual slide dimensions."""
                     modifications.append(f"{updated_count} shape(s) updated")
                 if not_found_ids:
                     modifications.append(f"shape_id not found: {not_found_ids}")
+
+            # Update table cells
+            if update_table_cells:
+                # Parse JSON strings
+                if isinstance(update_table_cells, str):
+                    try:
+                        update_table_cells = json.loads(update_table_cells)
+                    except json.JSONDecodeError as e:
+                        return f"Error: Invalid JSON in update_table_cells: {e}"
+
+                # Build shape map including shapes inside groups (recursive)
+                def collect_shapes_for_tables(shapes):
+                    result = {}
+                    for shape in shapes:
+                        result[shape.shape_id] = shape
+                        if hasattr(shape, "shapes"):
+                            result.update(collect_shapes_for_tables(shape.shapes))
+                    return result
+
+                table_shape_map = collect_shapes_for_tables(slide.shapes)
+                cells_updated = 0
+                table_not_found = []
+
+                for table_update in update_table_cells:
+                    if isinstance(table_update, str):
+                        try:
+                            table_update = json.loads(table_update)
+                        except json.JSONDecodeError:
+                            continue
+
+                    shape_id = table_update.get("shape_id")
+                    cells = table_update.get("cells", [])
+
+                    if shape_id is None:
+                        continue
+
+                    shape = table_shape_map.get(shape_id)
+                    if shape is None or not hasattr(shape, "table"):
+                        table_not_found.append(shape_id)
+                        continue
+
+                    table = shape.table
+                    rows_count = len(table.rows)
+                    cols_count = len(table.columns)
+
+                    for cell_update in cells:
+                        if isinstance(cell_update, str):
+                            try:
+                                cell_update = json.loads(cell_update)
+                            except json.JSONDecodeError:
+                                continue
+
+                        # Get cell coordinates
+                        row_idx = None
+                        col_idx = None
+
+                        if "cell" in cell_update:
+                            # Excel-style address (e.g., "A1", "B3")
+                            try:
+                                row_idx, col_idx = cell_address_to_indices(cell_update["cell"])
+                            except ValueError:
+                                continue
+                        elif "row" in cell_update and "col" in cell_update:
+                            row_idx = int(cell_update["row"])
+                            col_idx = int(cell_update["col"])
+
+                        if row_idx is None or col_idx is None:
+                            continue
+
+                        # Validate bounds
+                        if row_idx >= rows_count or col_idx >= cols_count:
+                            continue
+                        if row_idx < 0 or col_idx < 0:
+                            continue
+
+                        # Get the cell and apply style
+                        cell = table.cell(row_idx, col_idx)
+                        apply_cell_style(cell, cell_update)
+                        cells_updated += 1
+
+                if cells_updated > 0:
+                    modifications.append(f"{cells_updated} table cell(s) updated")
+                if table_not_found:
+                    modifications.append(f"table shape_id not found: {table_not_found}")
 
             # Remove shapes by ID
             if remove_shape_ids:

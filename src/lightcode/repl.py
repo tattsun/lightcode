@@ -11,16 +11,19 @@ from pathlib import Path
 from typing import Callable, TypeVar
 
 import litellm
-from prompt_toolkit import prompt as pt_prompt
+from prompt_toolkit import PromptSession
+from prompt_toolkit.clipboard import ClipboardData
+from prompt_toolkit.key_binding import KeyBindings
 from rich.markdown import Markdown
 from rich.panel import Panel
 
-from lightcode.config import load_config
+from lightcode.clipboard import ClipboardImage, grab_clipboard_image
+from lightcode.config import ModelConfig, get_effective_model_config, load_config, should_use_completion_api
 from lightcode.interrupt import InterruptHandler, InterruptRequested, run_with_interrupt
 from lightcode.logging import append_log
 from lightcode.registry import ToolRegistry, execute_tool
 from lightcode.tools import ALL_TOOLS, ALL_TOOLS_BY_NAME, SubAgentTool, WebFetchTool, WebSearchTool
-from lightcode.ui import console
+from lightcode.ui import console, format_image_attachments
 
 T = TypeVar("T")
 
@@ -61,6 +64,9 @@ class ReplConfig:
     """Configuration for the REPL loop."""
 
     model: str
+    api_base: str | None
+    api_key: str | None
+    max_input_tokens: int | None
     registry: ToolRegistry
     instructions: str
     skip_permission: bool
@@ -125,14 +131,28 @@ class CompletionClient(ApiClient):
 
     def __init__(self, config: ReplConfig):
         self.config = config
-        self.model_info = litellm.get_model_info(config.model)
-        self.max_tokens = self.model_info.get("max_input_tokens", 128_000)
+        # Use config max_input_tokens if set, otherwise try to get from model info
+        if config.max_input_tokens:
+            self.max_tokens = config.max_input_tokens
+        else:
+            try:
+                model_info = litellm.get_model_info(config.model)
+                self.max_tokens = model_info.get("max_input_tokens", 128_000)
+            except Exception:
+                # Local models may not have model info in LiteLLM
+                self.max_tokens = 128_000
         self.messages: list[dict] = [
             {"role": "system", "content": config.instructions},
         ]
 
     def get_status_text(self) -> str:
-        token_count = litellm.token_counter(model=self.config.model, messages=self.messages)
+        try:
+            token_count = litellm.token_counter(model=self.config.model, messages=self.messages)
+        except Exception:
+            # Local models may not support token counting
+            token_count = 0
+        if token_count == 0:
+            return "[muted]Ready[/]"
         percentage = token_count * 100 // self.max_tokens
         return f"[muted]{self._format_tokens(token_count)} / {self._format_tokens(self.max_tokens)} tokens ({percentage}%)[/]"
 
@@ -151,10 +171,18 @@ class CompletionClient(ApiClient):
             if self.config.log_file:
                 append_log(self.config.log_file, user_message)
 
+        # Build optional kwargs for api_base/api_key
+        optional_kwargs: dict = {}
+        if self.config.api_base:
+            optional_kwargs["api_base"] = self.config.api_base
+        if self.config.api_key:
+            optional_kwargs["api_key"] = self.config.api_key
+
         response = litellm.completion(
             model=self.config.model,
             messages=self.messages,
             tools=self.config.registry.get_schemas(),
+            **optional_kwargs,
         )
 
         choice = response.choices[0]
@@ -234,12 +262,15 @@ class ResponsesClient(ApiClient):
         # Track token usage from API responses
         self.total_input_tokens: int = 0
         self.total_output_tokens: int = 0
-        # Get max tokens from model info
-        try:
-            model_info = litellm.get_model_info(config.model)
-            self.max_tokens = model_info.get("max_input_tokens", 128_000)
-        except Exception:
-            self.max_tokens = 128_000
+        # Use config max_input_tokens if set, otherwise try to get from model info
+        if config.max_input_tokens:
+            self.max_tokens = config.max_input_tokens
+        else:
+            try:
+                model_info = litellm.get_model_info(config.model)
+                self.max_tokens = model_info.get("max_input_tokens", 128_000)
+            except Exception:
+                self.max_tokens = 128_000
 
     def get_status_text(self) -> str:
         if self.total_input_tokens == 0:
@@ -279,6 +310,13 @@ class ResponsesClient(ApiClient):
         return serialized
 
     def call(self, user_input: str | list) -> ApiCallResult:
+        # Build optional kwargs for api_base/api_key
+        optional_kwargs: dict = {}
+        if self.config.api_base:
+            optional_kwargs["api_base"] = self.config.api_base
+        if self.config.api_key:
+            optional_kwargs["api_key"] = self.config.api_key
+
         response = litellm.responses(
             model=self.config.model,
             input=user_input,
@@ -286,6 +324,7 @@ class ResponsesClient(ApiClient):
             tools=self.config.registry.get_responses_schemas(),
             previous_response_id=self.previous_response_id,
             reasoning={"effort": self.reasoning_effort, "summary": "auto"},
+            **optional_kwargs,
         )
 
         self.previous_response_id = response.id
@@ -387,6 +426,128 @@ class ResponsesClient(ApiClient):
         self.total_output_tokens = 0
 
 
+# -----------------------------------------------------------------------------
+# Clipboard Image Handling
+# -----------------------------------------------------------------------------
+
+# Module-level pending images list (reset each turn)
+_pending_images: list[ClipboardImage] = []
+
+
+def create_prompt_session() -> PromptSession:
+    """Create a PromptSession with custom key bindings for image paste."""
+    from prompt_toolkit.keys import Keys
+
+    bindings = KeyBindings()
+
+    @bindings.add(Keys.BracketedPaste)
+    def handle_bracketed_paste(event):
+        """Handle bracketed paste: check for image in clipboard before pasting text."""
+        # First, check if clipboard has an image
+        image = grab_clipboard_image()
+        if image:
+            _pending_images.append(image)
+            console.print(f"[success]Image attached ({image.width}x{image.height})[/]")
+            # Don't insert the pasted text (which is likely just a file path)
+            return
+
+        # No image found, insert the pasted text normally
+        pasted_text = event.data
+        event.current_buffer.insert_text(pasted_text)
+
+    @bindings.add("c-v")  # Ctrl+V (fallback when bracketed paste is disabled)
+    def handle_ctrl_v(event):
+        """Handle Ctrl+V: paste image if available, otherwise paste text."""
+        image = grab_clipboard_image()
+        if image:
+            _pending_images.append(image)
+            console.print(f"[success]Image attached ({image.width}x{image.height})[/]")
+        else:
+            # Fall back to standard text paste
+            data = event.app.clipboard.get_data()
+            if data:
+                event.current_buffer.insert_text(data.text)
+
+    @bindings.add("escape", "v")  # Alt+V / Option+V alternative
+    def handle_alt_v(event):
+        """Handle Alt+V: paste image from clipboard."""
+        image = grab_clipboard_image()
+        if image:
+            _pending_images.append(image)
+            console.print(f"[success]Image attached ({image.width}x{image.height})[/]")
+        else:
+            console.print("[warning]No image in clipboard[/]")
+
+    return PromptSession(key_bindings=bindings)
+
+
+def build_multimodal_input(text: str, images: list[ClipboardImage]) -> str | list:
+    """Build multimodal input from text and images.
+
+    Args:
+        text: User's text input
+        images: List of clipboard images to include
+
+    Returns:
+        Either plain text string or list with image_url items for API
+    """
+    if not images:
+        return text
+
+    # Build multimodal content list
+    content: list[dict] = []
+
+    # Add images first
+    for img in images:
+        content.append({
+            "type": "image_url",
+            "image_url": {
+                "url": f"data:{img.mime_type};base64,{img.base64_data}",
+            },
+        })
+
+    # Add text
+    content.append({
+        "type": "text",
+        "text": text,
+    })
+
+    return content
+
+
+def build_responses_input(text: str, images: list[ClipboardImage]) -> str | list[dict]:
+    """Build Responses API input with images and text in a message item.
+
+    Args:
+        text: User's text input
+        images: List of clipboard images to include
+
+    Returns:
+        Either plain text string or list with a message item for Responses API
+    """
+    if not images:
+        return text
+
+    content: list[dict] = []
+    for img in images:
+        content.append({
+            "type": "input_image",
+            "image_url": f"data:{img.mime_type};base64,{img.base64_data}",
+        })
+
+    if text:
+        content.append({
+            "type": "input_text",
+            "text": text,
+        })
+
+    return [{
+        "type": "message",
+        "role": "user",
+        "content": content,
+    }]
+
+
 SYSTEM_PROMPT = """\
 You are lightcode, a coding agent that helps users with software engineering tasks.
 
@@ -423,19 +584,22 @@ def build_agents_md_message(cwd: Path) -> str | None:
 # -----------------------------------------------------------------------------
 
 
-def run_repl_loop(client: ApiClient, config: ReplConfig) -> None:
+def run_repl_loop(client: ApiClient, config: ReplConfig, is_responses_api: bool = False) -> None:
     """Run the unified REPL loop with any API client."""
+    global _pending_images
     interrupt_handler = InterruptHandler()
+    session = create_prompt_session()
 
     while True:
         try:
-            # Reset interrupt state at the start of each turn
+            # Reset interrupt state and pending images at the start of each turn
             interrupt_handler.reset()
+            _pending_images = []
 
             console.print(client.get_status_text())
 
             # Don't monitor during prompt - EscKeyMonitor conflicts with prompt_toolkit
-            user_input = pt_prompt("> ").strip()
+            user_input = session.prompt("> ").strip()
 
             if not user_input:
                 continue
@@ -444,8 +608,23 @@ def run_repl_loop(client: ApiClient, config: ReplConfig) -> None:
                 print("Goodbye!")
                 break
 
+            # Display attached images info
+            if _pending_images:
+                console.print(format_image_attachments(_pending_images))
+
             client.log_user_input(user_input)
-            current_input: str | list = user_input
+
+            # Build multimodal input if images are attached
+            if _pending_images:
+                if is_responses_api:
+                    # Responses API uses message item with input_image/input_text
+                    current_input = build_responses_input(user_input, _pending_images)
+                else:
+                    # Completion API uses image_url format
+                    current_input = build_multimodal_input(user_input, _pending_images)
+            else:
+                current_input = user_input
+
             interrupted = False
 
             # Start monitoring only during API calls and tool execution
@@ -522,6 +701,9 @@ def run_repl_loop(client: ApiClient, config: ReplConfig) -> None:
                             padding=(0, 1),
                         ))
                         console.print()
+                    else:
+                        # Empty response - model may not support tools
+                        console.print("[warning]⚠️ Empty response from model (may not support tool calling)[/]")
                     break
 
             # If interrupted, reset context and continue to next user input
@@ -550,9 +732,20 @@ def run_repl(
     reasoning_effort: str = "medium",
 ) -> None:
     """Start the REPL."""
-    model = os.environ.get("LIGHTCODE_MODEL", "openai/gpt-5.2")
+    # Load configuration
+    lightcode_config = load_config()
 
-    api_label = "Responses API" if api_mode == "responses" else "Completions API"
+    # Get effective model config (YAML + environment variables)
+    model_config = get_effective_model_config(lightcode_config)
+    model = model_config.name
+
+    # Check if we need to fall back to Completion API for local models
+    effective_api_mode = api_mode
+    if api_mode == "responses" and should_use_completion_api(model):
+        console.print(f"[warning]⚠️ {model} does not support Responses API, using Completion API[/]")
+        effective_api_mode = "completion"
+
+    api_label = "Responses API" if effective_api_mode == "responses" else "Completions API"
     console.print()
     console.print(Panel(
         f"[bold]lightcode REPL[/] [dim]({model} + {api_label})[/]",
@@ -562,15 +755,15 @@ def run_repl(
         console.print("[warning]⚡ --no-permissions mode: skipping tool permission prompts[/]")
     if enable_web_search:
         console.print("[success]🌐 Web search enabled (Tavily)[/]")
-    if api_mode == "responses":
+    if effective_api_mode == "responses":
         console.print(f"[success]🧠 Reasoning effort: {reasoning_effort}[/]")
     if log_file:
         console.print(f"[success]📝 Logging to: {log_file}[/]")
+    if model_config.api_base:
+        console.print(f"[success]🔗 API base: {model_config.api_base}[/]")
 
-    # Load configuration
-    config = load_config()
-    if config.subagents:
-        types_str = ", ".join(config.subagents.keys())
+    if lightcode_config.subagents:
+        types_str = ", ".join(lightcode_config.subagents.keys())
         console.print(f"[success]🤖 Subagent types: {types_str}[/]")
 
     console.print("[muted]Type 'exit' or 'quit' to exit[/]")
@@ -582,22 +775,28 @@ def run_repl(
         all_tools_by_name["web_search"] = WebSearchTool()
         all_tools_by_name["web_fetch"] = WebFetchTool()
 
+    # Get subagent model config (use subagent_model if specified, otherwise main model)
+    subagent_model_config = lightcode_config.subagent_model or model_config
+
     # Add SubAgentTool to available tools if subagents are configured
-    if config.subagents:
+    if lightcode_config.subagents:
         subagent_tool = SubAgentTool(
-            model=model,
+            model=subagent_model_config.name,
+            api_base=subagent_model_config.api_base,
+            api_key=subagent_model_config.api_key,
+            max_input_tokens=subagent_model_config.max_input_tokens,
             all_tools=all_tools_by_name,
-            subagent_configs=config.subagents,
-            api_mode=api_mode,
+            subagent_configs=lightcode_config.subagents,
+            api_mode=effective_api_mode,
             reasoning_effort=reasoning_effort,
         )
         all_tools_by_name["subagent"] = subagent_tool
 
     # Build main agent tool list
-    if config.main_tools is not None:
+    if lightcode_config.main_tools is not None:
         # Use tools specified in config
         tools: list = []
-        for tool_name in config.main_tools:
+        for tool_name in lightcode_config.main_tools:
             if tool_name in all_tools_by_name:
                 tools.append(all_tools_by_name[tool_name])
     else:
@@ -622,8 +821,11 @@ def run_repl(
         console.print("[success]📋 Loaded AGENTS.md[/]")
 
     # Create configuration
-    config = ReplConfig(
+    repl_config = ReplConfig(
         model=model,
+        api_base=model_config.api_base,
+        api_key=model_config.api_key,
+        max_input_tokens=model_config.max_input_tokens,
         registry=registry,
         instructions=instructions,
         skip_permission=skip_permission,
@@ -631,12 +833,12 @@ def run_repl(
     )
 
     # Create API client and run the loop
-    if api_mode == "responses":
-        client: ApiClient = ResponsesClient(config, reasoning_effort)
+    if effective_api_mode == "responses":
+        client: ApiClient = ResponsesClient(repl_config, reasoning_effort)
     else:
-        client = CompletionClient(config)
+        client = CompletionClient(repl_config)
 
-    run_repl_loop(client, config)
+    run_repl_loop(client, repl_config, is_responses_api=(effective_api_mode == "responses"))
 
 
 def main() -> None:
