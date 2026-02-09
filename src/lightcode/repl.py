@@ -177,6 +177,9 @@ class CompletionClient(ApiClient):
             optional_kwargs["api_base"] = self.config.api_base
         if self.config.api_key:
             optional_kwargs["api_key"] = self.config.api_key
+        # Pass num_ctx for Ollama models
+        if self.config.max_input_tokens and "ollama" in self.config.model.lower():
+            optional_kwargs["num_ctx"] = self.config.max_input_tokens
 
         response = litellm.completion(
             model=self.config.model,

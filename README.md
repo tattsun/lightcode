@@ -68,6 +68,7 @@ subagents:
 model:
   name: "ollama_chat/llama3.1"    # Use ollama_chat/ for tool support
   api_base: "http://localhost:11434"
+  max_input_tokens: 131072        # Sets num_ctx (Ollama default is only 8192)
 ```
 
 **vLLM:**

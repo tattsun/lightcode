@@ -158,6 +158,7 @@ Available subagent types:
                 model=self._model,
                 api_base=self._api_base,
                 api_key=self._api_key,
+                max_input_tokens=self._max_input_tokens,
                 tools=tools,
                 api_mode=self._api_mode,
                 reasoning_effort=self._reasoning_effort,

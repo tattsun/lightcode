@@ -135,6 +135,7 @@ def run_subagent(
     model: str,
     api_base: str | None,
     api_key: str | None,
+    max_input_tokens: int | None,
     tools: list[Tool],
     api_mode: str,
     reasoning_effort: str,
@@ -151,6 +152,7 @@ def run_subagent(
         model: Model to use.
         api_base: Custom API base URL (optional).
         api_key: API key (optional).
+        max_input_tokens: Maximum input tokens (optional, used for Ollama num_ctx).
         tools: List of available tools for this subagent type.
         api_mode: API mode ('completion' or 'responses').
         reasoning_effort: Reasoning effort level for Responses API.
@@ -196,6 +198,7 @@ def run_subagent(
             model=model,
             api_base=api_base,
             api_key=api_key,
+            max_input_tokens=max_input_tokens,
             instructions=instructions,
             registry=registry,
             max_turns=max_turns,
@@ -208,6 +211,7 @@ def _run_completion_subagent(
     model: str,
     api_base: str | None,
     api_key: str | None,
+    max_input_tokens: int | None,
     instructions: str,
     registry: ToolRegistry,
     max_turns: int,
@@ -227,6 +231,9 @@ def _run_completion_subagent(
         optional_kwargs["api_base"] = api_base
     if api_key:
         optional_kwargs["api_key"] = api_key
+    # Pass num_ctx for Ollama models
+    if max_input_tokens and "ollama" in model.lower():
+        optional_kwargs["num_ctx"] = max_input_tokens
 
     last_content: str | None = None
 
